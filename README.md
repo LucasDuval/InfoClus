@@ -1,10 +1,13 @@
 # ExClus
 
 ## Requirements
+* notebook
+* scikit-learn
+
+
 * dash
 * dash-bootstrap-components
 * pandas
-* scikit-learn
 
 ## Run
 

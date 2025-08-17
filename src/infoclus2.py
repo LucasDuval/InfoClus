@@ -8,7 +8,6 @@ import traceback
 import sys
 from tkinter import BooleanVar
 
-import plotly.express as px
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
