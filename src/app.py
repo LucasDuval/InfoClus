@@ -1,3 +1,5 @@
+from pydoc import html
+
 import dash
 import dash_bootstrap_components as dbc
 
@@ -8,7 +10,8 @@ from dash_utils import build_infoclus, serialize_infoclus
 from config import PROJECT_ROOT
 
 
-infoclus_obj = build_infoclus('german_socio_eco', 'tsne')
+infoclus_obj = build_infoclus('german_socio_eco')
+infoclus_obj.optimise()
 
 app = dash.Dash(__name__, external_stylesheets=[dbc.themes.BOOTSTRAP])
 app.title = "InfoClus | A Dashboard for explainable clustering helping you understand your dataset better"
@@ -22,10 +25,19 @@ for url in my_css_urls:
 app.layout = dash.html.Div(
     id='main-div',
     children=[
-        dash.dcc.Store(id='infoclus_store', storage_type='memory',
-                       data=serialize_infoclus(infoclus_obj)),
-        dash.html.Div(id='dashboard-content', children=config_layout(infoclus_obj))
-
+        dbc.NavbarSimple(brand="InfoClus", color="primary", dark=True, fluid=True, sticky='top', brand_href="#"),
+        dash.dcc.Store(id='infoclus_store', storage_type='memory', data=serialize_infoclus(infoclus_obj)),
+        dbc.Container(
+            fluid=True,
+            children=[
+                dbc.Row(
+                    dbc.Col(
+                        dash.html.Div(
+                            id = 'dashboard-content',
+                            children=config_layout(infoclus_obj))))
+            ],
+            style={'marginTop': '80px'}
+        )
     ]
 )
 

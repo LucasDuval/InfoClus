@@ -19,6 +19,7 @@ from caching import from_cache, to_cache
 import infoclus_utils as utils
 
 from collections import defaultdict, OrderedDict
+from config import PROJECT_ROOT as ROOT
 
 RUNTIME_OPTIONS = [0.01, 0.5, 1, 5, 10, 30, 60, 180, 300, 600, 1800, 3600, np.inf]
 VAR_TPYE_THRESHOLD = 20
@@ -26,8 +27,9 @@ REPLACE_NAN = 0
 EPSILON= 0.00001
 Random_State = 42
 KMEANS_COUNT = 30 # How many kmeans with different k we are going to consider, starting from the k passed in initailization
+SPLITTING_STRATEGY = ['by_node','by_sibling']
 
-ROOT = utils.get_project_root()
+# ROOT = utils.get_project_root()
 DATA_FOLDER = os.path.join(ROOT, 'data')
 
 class InfoClus:
@@ -45,13 +47,14 @@ class InfoClus:
     '''
 
     ######################################## step 1: initialization ########################################
-    def __init__(self, dataset_name: str, data_folder: str = None,
-                 main_emb: str = 'tsne', embedding: np.array = None,
-                 model = AgglomerativeClustering(linkage='single', distance_threshold=0, n_clusters=None),
-                 alpha: int = None, beta: float = 1.5, min_att: int = 2, max_att: int = 10, runtime_id: int = 3,
-                 Allow_cache: BooleanVar = False,
-                 Modify_hierarchical = True,
-                 Base_Clusters=1000
+    def __init__(self, dataset_name: str,     # necessary
+
+                 embedding: np.array = None,  # optional: given a precomputed embedding
+                 data_folder: str = None,     # optional
+
+                 paras = None, # optional: parameters for running InfoClus, if not given, computed in default way
+
+                 allow_cache = True
                  ):
         '''
         The initialization will
@@ -69,21 +72,19 @@ class InfoClus:
         '''
         print('Initializing InfoClus ...')
         tic_initialization = time.time()
+
         self.name = dataset_name
         if data_folder is None:
             self.dataset_folder = os.path.join(DATA_FOLDER, dataset_name)
         else:
             self.dataset_folder = data_folder
-        self.emb_name = main_emb
-        self.model = model
-        self.beta = beta
+        df_data = pd.read_csv(os.path.join(self.dataset_folder, f'{self.name}.csv'))
+
         self.epsilon = EPSILON
-        self.min_att = min_att
-        self.max_att = max_att
-        self.runtime_id = runtime_id
-        self.runtime = RUNTIME_OPTIONS[runtime_id]
-        self.modify_hierarchical = Modify_hierarchical
         self.cache_path = os.path.join(self.dataset_folder, 'cache')
+        self.allow_cache = allow_cache
+
+        self._init_paras(paras, df_data.size)
 
         #################################### step1: obtain preliminary processed information (like embeddings) #########################################
         df_data = pd.read_csv(os.path.join(self.dataset_folder, f'{self.name}.csv'))
@@ -91,11 +92,7 @@ class InfoClus:
         if factorized_data is not None and ls_mapping_chain_by_col is not None:
             self.factorized_data = factorized_data
             self.ls_mapping_chain_by_col = ls_mapping_chain_by_col
-        # self.data = self.data_scaled.values
-        if alpha is None:
-            self.alpha = int(len(self.data)/10)
-        else:
-            self.alpha = alpha
+
         if embedding is None:
             self.all_embeddings = utils.get_embeddings(self.data.values)
             if self.emb_name not in self.all_embeddings.keys():
@@ -135,7 +132,7 @@ class InfoClus:
         if isinstance(self.model, AgglomerativeClustering):
             if self.modify_hierarchical:
                 diss = euclidean_distances(self.embedding)
-                self.kmedoids_model = kmedoids.fasterpam(diss, Base_Clusters)
+                self.kmedoids_model = kmedoids.fasterpam(diss, self.base_clusters)
                 self.kmedoids_clustering = self.kmedoids_model.labels
                 self.original_data_raw = self.data_raw
                 self.original_embedding = self.embedding
@@ -144,16 +141,18 @@ class InfoClus:
                 self.embedding = self.embedding[self.kmedoids_model.medoids]
             self._fit_model()
             self._create_linkage()
-            file_path = os.path.join(self.dataset_folder, f'{self.name}_{self.emb_name}_agglomerative_{self.model.linkage}.pkl')
+            # file_path = os.path.join(self.dataset_folder, f'{self.name}_{self.emb_name}_agglomerative_{self.model.linkage}.pkl')
             self._calc_priors_agglomerative()
         if isinstance(self.model, KMeans):
-            file_path = os.path.join(self.dataset_folder, f'{self.name}_{self.emb_name}_kmeans_{self.model.n_clusters}.pkl')
+            # file_path = os.path.join(self.dataset_folder, f'{self.name}_{self.emb_name}_kmeans_{self.model.n_clusters}.pkl')
             self._calc_priors_kmeans() # todo, merge two _calc_priors as one
 
-        if Allow_cache:
-            with open(file_path, "wb") as file:
-                pickle.dump(self, file)
-            print(f'instance saved to {file_path}')
+        if self.allow_cache:
+            to_cache(os.path.join(self.cache_path, self.name), self)
+            print(f'instance saved to {os.path.join(self.cache_path, self.name)}')
+            # with open(file_path, "wb") as file:
+            #     pickle.dump(self, file)
+            # print(f'instance saved to {file_path}')
         toc_initialization = time.time()
         print(f'Initialization done, time: {toc_initialization - tic_initialization} s')
         scalability_file = os.path.join(ROOT, 'data', 'cytometry', 'scalability_output.csv')
@@ -165,6 +164,55 @@ class InfoClus:
             df = pd.read_csv(scalability_file, index_col="sample_size")
             df.loc[new_index] = new_data
             df.to_csv(scalability_file, index=True)
+
+    def _init_paras(self, paras:dict, size):
+        if paras is None:
+            self.emb_name = 'tsne'
+            self.linkage = 'single'
+            self.model = AgglomerativeClustering(linkage=self.linkage, distance_threshold=0, n_clusters=None)
+            self.alpha = int(size/10)
+            self.beta = 1.5
+            self.min_att = 2
+            self.max_att = 5
+            self.runtime_id = 6
+            self.runtime = RUNTIME_OPTIONS[self.runtime_id]
+            self.split_strategy = SPLITTING_STRATEGY[0]
+            self.modify_hierarchical = False
+            if self.modify_hierarchical:
+                self.base_clusters = size/5
+        else:
+            self.emb_name = paras['emb_name']
+            self.linkage = paras['linkage']
+            self.model = AgglomerativeClustering(linkage=self.linkage, distance_threshold=0, n_clusters=None)
+            if paras['alpha'] is None:
+                self.alpha = int(size / 10)
+            else:
+                self.alpha = paras['alpha']
+            self.beta = paras['beta']
+            self.min_att = paras['min_att']
+            self.max_att = paras['max_att']
+            self.runtime_id = paras['runtime_id']
+            self.runtime = RUNTIME_OPTIONS[self.runtime_id]
+            self.split_strategy = paras['split_strategy']
+            self.modify_hierarchical = paras['modify_hierarchical']
+            if self.modify_hierarchical:
+                self.base_clusters = paras['base_clusters']
+
+    def get_paras(self):
+        paras_val = {
+            'emb_name': self.emb_name,
+            'linkage': self.linkage,
+            'alpha': self.alpha,
+            'beta': self.beta,
+            'min_att': self.min_att,
+            'max_att': self.max_att,
+            'runtime_id': self.runtime_id,
+            'split_strategy': self.split_strategy,
+            'modify_hierarchical': self.modify_hierarchical,
+        }
+        if self.modify_hierarchical:
+            paras_val['base_clusters'] = self.base_clusters
+        return paras_val
 
     def _fit_model(self):
         '''
@@ -420,9 +468,9 @@ class InfoClus:
         return ic
 
     ######################################## step 2: optimise: either run InfoClus or read from cache ########################################
-    def optimise(self, alpha=None, beta=None, min_att=None, max_att=None, runtime_id=3,
-                 Allow_cache=False, Show_brief_result=False,
-                 splitting_startegy: str = 'by_node'):
+    def optimise(self, paras=None,
+
+                 allow_cache=True, show_brief_result=False):
         '''
         optimise result with current hyperparameters, the process is as follows:
         1. update hyperparameters of self
@@ -431,17 +479,22 @@ class InfoClus:
         4. print the clustering result
         '''
         # update hyperparameters of self
-        if alpha is not None:
-            self.alpha = alpha
-        if beta is not None:
-            self.beta = beta
-        if min_att is not None:
-            self.min_att = min_att
-        if max_att is not None:
-            self.max_att = max_att
-        if runtime_id is not None:
-            self.runtime_id = runtime_id
-        self.runtime = RUNTIME_OPTIONS[runtime_id]
+        self.allow_cache = allow_cache
+        if paras is not None:
+            self.emb_name = paras['emb_name']
+            self.linkage = paras['linkage']
+            self.model = AgglomerativeClustering(linkage=self.linkage, distance_threshold=0, n_clusters=None)
+            if paras['alpha'] is not None:
+                self.alpha = paras['alpha']
+            self.beta = paras['beta']
+            self.min_att = paras['min_att']
+            self.max_att = paras['max_att']
+            self.runtime_id = paras['runtime_id']
+            self.runtime = RUNTIME_OPTIONS[self.runtime_id]
+            self.split_strategy = paras['split_strategy']
+            self.modify_hierarchical = paras['modify_hierarchical']
+            if self.modify_hierarchical:
+                self.base_clusters = paras['base_clusters']
 
         # check cache
         cache_name, previously_calculated = self.check_cache()
@@ -450,13 +503,13 @@ class InfoClus:
             self._si_opt = 0
             # todo: merge the two run_infoclus into one, and using if condition to control
             if isinstance(self.model, AgglomerativeClustering):
-                self._run_infoclus_agglomerative(splitting_startegy)
+                self._run_infoclus_agglomerative(self.split_strategy)
             if isinstance(self.model, KMeans):
                 self._run_infoclus_kmeans()
-            if Allow_cache:
+            if self.allow_cache:
                 self.create_cache_version(cache_name)
 
-        if Show_brief_result:
+        if show_brief_result:
             num_att = 0
             for cluster_idx in range(len(self._attributes_opt)):
                 num_att += len(self._attributes_opt[cluster_idx])
@@ -1007,17 +1060,16 @@ class InfoClus:
                                  "si": self._si_opt,
                                  "ic": self._ic_opt,
                                  "dls": self._dls,
-                                 "nodes": self._nodes_opt,
+                                 # "nodes": self._nodes_opt,
                                  "total_dl": self._total_dl_opt,
                                  "total_ic": self._total_ic_opt,
                                  }
         to_cache(os.path.join(self.cache_path, cache_name), previously_calculated)
 
     def check_cache(self):
-        if isinstance(self.model, AgglomerativeClustering):
-            cache_name = f'{self.name}_{self.emb_name}_agglomerative_{self.model.linkage}_alpha{int(self.alpha)}_beta{self.beta}_mina{self.min_att}_maxa{self.max_att}_runid{int(self.runtime_id)}'
-        if isinstance(self.model, KMeans):
-            cache_name = f'{self.name}_{self.emb_name}_kmeans_{self.model.n_clusters}_alpha{int(self.alpha)}_beta{self.beta}_mina{self.min_att}_maxa{self.max_att}_runid{int(self.runtime_id)}'
+
+        current_paras = self.get_paras()
+        cache_name = self.name + utils.get_hashkey_from_dict(current_paras)
 
         previously_calculated = from_cache(os.path.join(self.cache_path, cache_name))
         if previously_calculated is not None:
@@ -1031,7 +1083,7 @@ class InfoClus:
             self._si_opt = previously_calculated["si"]
             self._ic_opt = previously_calculated["ic"]
             self._dls = previously_calculated["dls"]
-            self._nodes_opt = previously_calculated["nodes"]
+            # self._nodes_opt = previously_calculated["nodes"]
             self._total_dl_opt = previously_calculated["total_dl"]
             self._total_ic_opt = previously_calculated["total_ic"]
         return cache_name, previously_calculated

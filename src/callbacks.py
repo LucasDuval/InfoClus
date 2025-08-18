@@ -4,6 +4,7 @@ from dash.dependencies import Input, Output, State
 from layout import *
 from dash_utils import build_infoclus, serialize_infoclus, deserialize_infoclus
 from config import PROJECT_ROOT
+from infoclus2 import SPLITTING_STRATEGY
 
 def register_callbacks(app):
 
@@ -25,11 +26,23 @@ def register_callbacks(app):
 
         trigger_id = ctx.triggered[0]['prop_id'].split('.')[0]
         if trigger_id == 'dataset-select':
-            infoclus_obj = build_infoclus(dataset, 'tsne')
+            infoclus_obj = build_infoclus(dataset)
             infoclus_obj.optimise()
         elif trigger_id == 'recalc-hyperparameters':
-            infoclus_obj = build_infoclus(dataset, embedding_name)
-            infoclus_obj.optimise(alpha=alpha,beta=beta,min_att=minAtt,runtime_id=runtime_id)
+            infoclus_obj = build_infoclus(dataset)
+            paras = {
+            'emb_name': embedding_name,
+            'linkage': 'single',
+            'alpha': alpha,
+            'beta': beta,
+            'min_att': minAtt,
+            'max_att': 5,
+            'runtime_id': runtime_id,
+            'split_strategy': SPLITTING_STRATEGY[0],
+            'modify_hierarchical': False,
+            'base_clusters': 1000 # no need to assign a value while 'modify_hierarchical' is False
+}
+            infoclus_obj.optimise(paras)
         else:
             print('unknown trigger id')
 

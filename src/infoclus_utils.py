@@ -1,4 +1,4 @@
-import copy
+import copy, json, hashlib
 import os
 
 import numpy as np
@@ -225,17 +225,22 @@ def get_barchart(df_mapping_chain, dist_of_fixed_cluster_att, dist_of_att_in_dat
     plt.tight_layout()
     return fig
 
-def get_project_root():
-    # Get the directory of the current script
-    current_dir = os.path.dirname(os.path.abspath(__file__))
+def get_hashkey_from_dict(dict_obj: dict):
+    dict_str = json.dumps(dict_obj, sort_keys=True)
+    unique_key = hashlib.md5(dict_str.encode("utf-8")).hexdigest()
+    return unique_key
 
-    # Go up the directory tree until you find a specific file (like `setup.py` or a config file)
-    # In this case, we can stop when we find the root of the project (you can customize the condition)
-    while not os.path.exists(os.path.join(current_dir,
-                                          'readme.md')):  # You can change 'setup.py' to something else (e.g., README.md or a custom marker file)
-        parent_dir = os.path.dirname(current_dir)
-        if parent_dir == current_dir:  # Stop when you reach the root of the filesystem
-            raise RuntimeError("Project root not found.")
-        current_dir = parent_dir
-
-    return current_dir
+# def get_project_root():
+#     # Get the directory of the current script
+#     current_dir = os.path.dirname(os.path.abspath(__file__))
+#
+#     # Go up the directory tree until you find a specific file (like `setup.py` or a config file)
+#     # In this case, we can stop when we find the root of the project (you can customize the condition)
+#     while not os.path.exists(os.path.join(current_dir,
+#                                           'readme.md')):  # You can change 'setup.py' to something else (e.g., README.md or a custom marker file)
+#         parent_dir = os.path.dirname(current_dir)
+#         if parent_dir == current_dir:  # Stop when you reach the root of the filesystem
+#             raise RuntimeError("Project root not found.")
+#         current_dir = parent_dir
+#
+#     return current_dir

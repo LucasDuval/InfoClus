@@ -5,5 +5,4 @@ __pycache__/
 *.pyc
 /figs/
 **/cache/
-/data/
 *.png
