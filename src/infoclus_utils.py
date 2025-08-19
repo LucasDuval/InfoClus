@@ -112,6 +112,8 @@ def get_scaled_data(data: pd.DataFrame, replace_nan: float) -> pd.DataFrame:
     return factorized_data, ls_mapping_chain_by_col, scaled_data, data
 
 def get_embeddings(data_array: np.ndarray) -> Dict[str, np.ndarray]:
+    from config import EMBEDDING_METHODS
+
     embeddings_dict = {}
     tsne = TSNE(n_components=2, perplexity=30, random_state=1)
     embeddings_dict['tsne'] = tsne.fit_transform(data_array)

@@ -9,26 +9,14 @@ from config import PROJECT_ROOT
 def build_infoclus(dataset_name: str='german_socio_eco'):
 
     cache_folder = os.path.join(PROJECT_ROOT, 'data', dataset_name, 'cache')
-    is_infoclus_exist = os.path.exists(os.path.join(cache_folder, dataset_name))
+    file_path = os.path.join(cache_folder, dataset_name + '_modify_True')
+    is_infoclus_exist = os.path.exists(file_path)
+
 
     if is_infoclus_exist:
-        infoclus = from_cache(os.path.join(cache_folder, dataset_name))
+        infoclus = from_cache(file_path)
     else:
         infoclus = InfoClus(dataset_name)
-    # infoclus.optimise()
-
-    # data_path = os.path.join(PROJECT_ROOT, 'data', dataset_name, f'{dataset_name}_{embedding_name}.pkl')
-    # if os.path.exists(data_path):
-    #     with open(data_path, 'rb') as file:
-    #         infoclus = pickle.load(file)
-    # else:
-    #     model = AgglomerativeClustering(linkage='single', distance_threshold=0, n_clusters=None)
-    #     infoclus = InfoClus(dataset_name=dataset_name, main_emb=embedding_name,
-    #                             model=model,
-    #                             Allow_cache=False,
-    #                             Modify_hierarchical=False,
-    #                             Base_Clusters=1000)
-    #     infoclus.optimise()
     return infoclus
 
 def serialize_infoclus(obj: InfoClus):
