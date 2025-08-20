@@ -232,17 +232,45 @@ def get_hashkey_from_dict(dict_obj: dict):
     unique_key = hashlib.md5(dict_str.encode("utf-8")).hexdigest()
     return unique_key
 
-# def get_project_root():
-#     # Get the directory of the current script
-#     current_dir = os.path.dirname(os.path.abspath(__file__))
-#
-#     # Go up the directory tree until you find a specific file (like `setup.py` or a config file)
-#     # In this case, we can stop when we find the root of the project (you can customize the condition)
-#     while not os.path.exists(os.path.join(current_dir,
-#                                           'readme.md')):  # You can change 'setup.py' to something else (e.g., README.md or a custom marker file)
-#         parent_dir = os.path.dirname(current_dir)
-#         if parent_dir == current_dir:  # Stop when you reach the root of the filesystem
-#             raise RuntimeError("Project root not found.")
-#         current_dir = parent_dir
-#
-#     return current_dir
+def recur_mean(mean1, count1, mean2, count2):
+    # combine two clusters
+    # given counts of points in clusters and means of clusters, & return mean of the new cluster within the recursive formula
+    return (mean1 * count1 + mean2 * count2) / (count1 + count2)
+
+def recur_var(mean1, var1, count1, mean2, var2, count2):
+    # combine two clusters
+    # given counts of points in clusters and variances of clusters, also means, & return variance of the new cluster within the recursive formula
+    a = (count1 * count2 * (mean2 - mean1) ** 2) / (count1 + count2)
+    return (count1 * var1 + count2 * var2 + a) / (count1 + count2)
+
+def recur_meanVar_merge(info_i, info_j):
+    count = info_i[2] + info_j[2]
+    mean = (info_i[0] * info_i[2] + info_j[0] * info_j[2]) / count
+    a = (info_i[2] * info_j[2] * (info_j[0] - info_i[0]) ** 2) / count
+    var = (info_i[2] * info_i[1] + info_j[2] * info_j[1] + a) / count
+    return [mean, var, count]
+
+def recur_meanVar_remove(mean, var, count, mean1, var1, count1):
+    # remove cluster 1 from original cluster, and return mean, variance and count for the left cluster
+    count2 = count - count1
+    if count2 == 0:
+        return None
+    mean2 = (count * mean - count1 * mean1) / count2
+    var2 = (count * var) / count2 - (count1 * var1) / count2 - (count1 * (mean1 - mean2) ** 2) / count
+    negas_var2 = var2 < 0
+    var2[negas_var2] = 0
+    return [mean2, var2, count2]
+
+def recur_dist_categorical(distribution1: pd.DataFrame, count1: int, distribution2: pd.DataFrame, count2: int) -> pd.DataFrame:
+    if (count1 + count2) == 0:
+        return None
+    distribution3_value = (distribution1.values * count1 + distribution2.values * count2)/(count1 + count2)
+    distribution3 = pd.DataFrame(distribution3_value, columns=distribution1.columns)
+
+    return distribution3
+
+def ic_one_info(means_cluster, vars_cluster, n_samples, prior):
+    cluster_ic = []
+    ic2 = n_samples * kl_gaussian(means_cluster, vars_cluster, prior[0], prior[1])
+    cluster_ic.extend(ic2)
+    return cluster_ic

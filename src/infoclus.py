@@ -13,7 +13,7 @@ from sklearn.cluster import AgglomerativeClustering, KMeans
 from sklearn.metrics.pairwise import euclidean_distances
 import kmedoids
 from caching import from_cache, to_cache
-import infoclus_utils as utils
+from infoclus_utils import *
 
 from collections import defaultdict
 from config import PROJECT_ROOT as ROOT
@@ -51,12 +51,13 @@ class _Data:
         self.cache_path = os.path.join(self.dataset_folder, 'cache')
 
         df_data = pd.read_csv(os.path.join(self.dataset_folder, f'{dataset_name}.csv'))
-        factorized_data, ls_mapping_chain_by_col, self.data, self.data_raw = utils.get_scaled_data(df_data, REPLACE_NAN)
+        factorized_data, ls_mapping_chain_by_col, self.data, self.data_raw = get_scaled_data(df_data, REPLACE_NAN)
+        self.size = self.data.shape[0]
         if factorized_data is not None and ls_mapping_chain_by_col is not None:
             self.factorized_data = factorized_data
             self.ls_mapping_chain_by_col = ls_mapping_chain_by_col
 
-        df_var_type_complexity = utils.get_var_type_complexity(self.data_raw, VAR_TPYE_THRESHOLD)
+        df_var_type_complexity = get_var_type_complexity(self.data_raw, VAR_TPYE_THRESHOLD)
         self.var_type = df_var_type_complexity['var_type']
         if len(self.var_type.unique()) > 1:
             self.global_var_type = 'mixed'
@@ -64,29 +65,78 @@ class _Data:
             self.global_var_type = self.var_type.iloc[0]
         self._dls = df_var_type_complexity['var_complexity']
 
+class _Embeddings:
+    """
+    Attributes:
+        all_embeddings
+        embedding
+    """
+    def __init__(self, data: _Data, embedding: np.ndarray=None):
+
+        self.all_embeddings = get_embeddings(data.data_raw.values)
+        if embedding is None:
+            self.embedding = self.all_embeddings['tsne']
+        else:
+            self.all_embeddings['user_given'] = embedding
+            self.embedding = embedding
+
 class _Paras:
-    def __init__(self, size,
+    def __init__(self, data_obj: _Data, embeddings_obj: _Embeddings,
                  alpha, emb_name, linkage, beta, min_att, max_att, run_id,
                  split_strategy_id,
                  modify_hierarchical, base_clusters):
+
+        if modify_hierarchical:
+            diss = euclidean_distances(embeddings_obj.embedding)
+            self.kmedoids_model = kmedoids.fasterpam(diss, base_clusters)
+            self.kmedoids_clustering = self.kmedoids_model.labels
+            data_obj.data = data_obj.data.iloc[self.kmedoids_model.medoids]
+            data_obj.size = data_obj.data.shape[0]
+            embeddings_obj.embedding = embeddings_obj.embedding[self.kmedoids_model.medoids]
+
         if alpha is None:
-            self.alpha = int(size / 10)
+            self.alpha = int(data_obj.size / 10)
         else:
             self.alpha = alpha
         if modify_hierarchical:
             if base_clusters is None:
-                self.base_clusters = int(size / 5)
+                self.base_clusters = int(data_obj.size / 5)
             else:
                 self.base_clusters = base_clusters
-        self.emb_name = emb_name
-        self.linkage = linkage
         self.beta = beta
         self.min_att = min_att
         self.max_att = max_att
         self.runtime_id = run_id
         self.runtime = RUNTIME_OPTIONS[self.runtime_id]
         self.split_strategy = SPLITTING_STRATEGY[split_strategy_id]
-        self.modify_hierarchical = modify_hierarchical
+        self._emb_name = emb_name
+        self._linkage = linkage
+        self._modify_hierarchical = modify_hierarchical
+
+    @property
+    def modify_hierarchical(self):
+        return self.modify_hierarchical
+    @property
+    def linkage(self):
+        return self.linkage
+    @property
+    def emb_name(self):
+        return self.emb_name
+
+    def update_paras(self, alpha, beta, min_att, max_att, run_id, split_strategy_id):
+        if alpha is not None:
+            self.alpha = alpha
+        if beta is not None:
+            self.beta = beta
+        if min_att is not None:
+            self.min_att = min_att
+        if max_att is not None:
+            self.max_att = max_att
+        if run_id is not None:
+            self.runtime_id = run_id
+            self.runtime = RUNTIME_OPTIONS[self.runtime_id]
+        if split_strategy_id is not None:
+            self.split_strategy = SPLITTING_STRATEGY[split_strategy_id]
 
     def get_paras(self):
         paras_val = {
@@ -104,24 +154,6 @@ class _Paras:
             paras_val['base_clusters'] = self.base_clusters
         return paras_val
 
-class _Embeddings:
-    """
-    Attributes:
-        all_embeddings
-        embedding
-    """
-    def __init__(self, data: _Data, paras: dict, embedding: np.ndarray=None):
-
-        self.all_embeddings = utils.get_embeddings(data.data_raw.values)
-        if embedding is None:
-            if paras['emb_name'] not in self.all_embeddings.keys():
-                print('Error! embedding not found!')
-            else:
-                self.embedding = self.all_embeddings[paras['emb_name']]
-        else:
-            self.all_embeddings['user_given'] = embedding
-            self.embedding = embedding
-
 class _Model:
     """
     models
@@ -129,33 +161,90 @@ class _Model:
         model
         kmedoids_model: optional
         kmedoids_clustering: optional
-    """
-    def __init__(self, data:_Data, paras: dict, embeddings: _Embeddings):
-        self.model = AgglomerativeClustering(linkage=paras['linkage'], distance_threshold=0, n_clusters=None)
-        if paras['modify_hierarchical']:
-            diss = euclidean_distances(embeddings.embedding)
-            self.kmedoids_model = kmedoids.fasterpam(diss, paras['base_clusters'])
-            self.kmedoids_clustering = self.kmedoids_model.labels
-            data.data = data.data.iloc[self.kmedoids_model.medoids]
-            embeddings.embedding = embeddings.embedding[self.kmedoids_model.medoids]
 
-        self.model.fit(embeddings.embedding)
+        meansForNodes
+        varsForNodes
+        nodesToPoints
+        parents
+    """
+    def __init__(self, data_obj:_Data, paras: dict, embeddings_obj: _Embeddings):
+        self.model = AgglomerativeClustering(linkage=paras['linkage'], distance_threshold=0, n_clusters=None)
+        self.model.fit(embeddings_obj.embedding)
+        self._calc_statistics_numeric(data_obj.data.values)
+        self._record_parents()
+
+    def _calc_statistics_numeric(self, data: np.ndarray):
+
+        n_samples = len(self.model.labels_)
+        self.meansForNodes = {}
+        self.varsForNodes = {}
+        self.nodesToPoints = {}
+        for i, merge in enumerate(self.model.children_):
+
+            self.nodesToPoints[i + n_samples] = []
+
+            for j, node in enumerate(merge):
+                if node < n_samples:
+                    self.meansForNodes[node] = data[node]
+                    self.varsForNodes[node] = np.zeros_like(self.meansForNodes[node])
+                    self.nodesToPoints[node] = [node]
+                    self.nodesToPoints[i + n_samples].append(node)
+                else:
+                    self.nodesToPoints[i + n_samples].append(self.nodesToPoints[node])
+
+            self.meansForNodes[i + n_samples] = recur_mean(self.meansForNodes[merge[0]], self.nodesToPoints[merge[0]],
+                                                     self.meansForNodes[merge[1]], self.nodesToPoints[merge[1]])
+            self.varsForNodes[i + n_samples] = recur_var(self.meansForNodes[merge[0]],
+                                                               self.varsForNodes[merge[0]],
+                                                               len(self.nodesToPoints[merge[0]]),
+                                                               self.meansForNodes[merge[1]],
+                                                               self.varsForNodes[merge[1]],
+                                                               len(self.nodesToPoints[merge[1]])
+                                                               )
+
+        self.prior = [self.meansForNodes[-1], self.varsForNodes[-1]]
+
+    def _record_parents(self):
+
+        n_samples = len(self.model.labels_)
+
+        self.parents = {}
+        for index, children in enumerate(self.model.children_):
+            left_child = children[0]
+            right_child = children[1]
+            self.parents[left_child] = index + n_samples
+            self.parents[right_child] = index + n_samples
+
+    def get_samples_count_given_medoids_idxes(self, medoids_idxes):
+
+        samples_count = 0
+        for medoid_idx in medoids_idxes:
+            cluster_label = medoid_idx
+            set_of_samples = np.where(self.kmedoids_model.labels==cluster_label)[0]
+            samples_count += len(set_of_samples)
+        return samples_count
+
+class _Result:
+    def __init__(self, mean_prior: np.ndarray, var_prior: np.ndarray, sample_size: int):
+
+        self.ic_opt = []  # ic of all attributes for each cluster
+        self.si_opt = 0  # value of si for this clustering
+        self.clusters_idxes_opt = [[0]*sample_size]  # all points belong to cluster 0
+        self.attributes_opt = []  # chosen attributes for each cluster
+
+        self._split_nodes_opt = []
+        self._clustersRelatedInfo = [[mean_prior, var_prior, sample_size]]
+
+    def get_clustering(self):
+
+        n_samples = sum(len(idxes) for idxes in self.clusters_idxes_opt)
+        clustering = np.full(n_samples, -1)  #
+        for cluster_id, cluster_idxes in enumerate(self.clusters_idxes_opt):
+            clustering[cluster_idxes] = cluster_id
+        return clustering
 
 class InfoClus:
-    '''
-        InfoClus is a class that offers a explanable clustering solution for datasets
-        It uses a pre-clustering model to offer candidate clusters
 
-        usually, the process of InfoClus is as follows:
-        1. initialization
-        2. optimise: either run InfoClus or read from cache
-        3. run InfoClus (optional)
-
-        save object to pickle file
-
-    '''
-
-    ######################################## step 1: initialization ########################################
     def __init__(self, dataset_name: str,     # necessary
 
                  embedding: np.ndarray = None,  # optional: given a precomputed embedding
@@ -167,379 +256,33 @@ class InfoClus:
 
                  allow_cache = True
                  ):
-        '''
-        The initialization will
-        1. obtain preliminary processed information (like embeddings)
-        2. further process information.
-            2.1 train model to get agglomerative clustering
-            2.2 get linkage matrix and calculate the distribution of each node,
-                parent of each node, points in each node and the values of each attribute
-            2.3 prior information computation
 
-        :param name: name of the dataset
-        :param data_folder: the path to the data folder
-        :param main_emb: the embedding type to be used for clustering
-        :param model: the pre-clustering model to be used to offer candidate clusters
-        '''
         print('Initializing InfoClus ...')
         tic_initialization = time.time()
 
         self.epsilon = EPSILON
         self.allow_cache = allow_cache
 
-        self.datas = _Data(dataset_name, data_folder)
-        self.paras = _Paras(self.datas.data.shape[0],
+        self.data_obj = _Data(dataset_name, data_folder)
+        self.embeddings_obj = _Embeddings(self.data_obj, embedding)
+        self.paras_obj = _Paras(self.data_obj, self.embeddings_obj,
                  alpha, emb_name, linkage, beta, min_att, max_att, run_id,
                  split_strategy_id,
                  modify_hierarchical, base_clusters)
-        self.embeddings = _Embeddings(self.datas, self.get_paras(), embedding)
-        self.models = _Model(self.datas, self.get_paras(), self.embeddings)
-
-
-        self._parents = None
-        self._linkage_matrix = None
-        self._prior_dataset = None
-        self._nodesToPoints = {}
-        if self.global_var_type == 'mixed':
-            print("Error! mixed variables are not supported yet!")
-            pass
-        elif self.global_var_type == 'numeric':
-            self._meansForNodes = {}
-            self._varsForNodes = {}
-        elif self.global_var_type == 'categorical':
-            self._distributionsForNodes = {}
-        else:
-            print("ERROR! not supported variable type!")
-
-        #################################### step2: furthur process #########################################
-        if isinstance(self.model, AgglomerativeClustering):
-            self._create_linkage()
-            self._calc_priors_agglomerative()
-        if isinstance(self.model, KMeans):
-            self._calc_priors_kmeans() # todo, merge two _calc_priors as one
+        self.model_obj = _Model(self.data_obj, self.paras_obj.get_paras(), self.embeddings_obj)
+        self.result_obj = _Result(self.model_obj.prior[0], self.model_obj.prior[1], self.data_obj.size)
 
         if self.allow_cache:
-            file_path = os.path.join(self.datas.cache_path, self.datas.name + '_modify_' + str(self.paras.modify_hierarchical))
+            file_path = os.path.join(self.data_obj.cache_path, self.data_obj.name + '_modify_' + str(self.paras_obj.modify_hierarchical))
             to_cache(file_path, self)
             print(f'instance saved to {file_path}')
 
         toc_initialization = time.time()
         print(f'Initialization done, time: {toc_initialization - tic_initialization} s')
-        # scalability_file = os.path.join(ROOT, 'data', 'cytometry', 'scalability_output.csv')
-        # if os.path.exists(scalability_file):
-        #     new_data = {
-        #     "initialization_time": toc_initialization-tic_initialization
-        #     }
-        #     new_index = self.name
-        #     df = pd.read_csv(scalability_file, index_col="sample_size")
-        #     df.loc[new_index] = new_data
-        #     df.to_csv(scalability_file, index=True)
-
-    def _init_paras(self, paras:dict, size):
-        if paras is None:
-            self.emb_name = 'tsne'
-            self.linkage = 'single'
-            self.model = AgglomerativeClustering(linkage=self.linkage, distance_threshold=0, n_clusters=None)
-            self.alpha = int(size/10)
-            self.beta = 1.5
-            self.min_att = 2
-            self.max_att = 5
-            self.runtime_id = 6
-            self.runtime = RUNTIME_OPTIONS[self.runtime_id]
-            self.split_strategy = SPLITTING_STRATEGY[0]
-            self.modify_hierarchical = False
-            if self.modify_hierarchical:
-                self.base_clusters = size/5
-        else:
-            self.emb_name = paras['emb_name']
-            self.linkage = paras['linkage']
-            self.model = AgglomerativeClustering(linkage=self.linkage, distance_threshold=0, n_clusters=None)
-            if paras['alpha'] is None:
-                self.alpha = int(size / 10)
-            else:
-                self.alpha = paras['alpha']
-            self.beta = paras['beta']
-            self.min_att = paras['min_att']
-            self.max_att = paras['max_att']
-            self.runtime_id = paras['runtime_id']
-            self.runtime = RUNTIME_OPTIONS[self.runtime_id]
-            self.split_strategy = paras['split_strategy']
-            self.modify_hierarchical = paras['modify_hierarchical']
-            if self.modify_hierarchical:
-                self.base_clusters = paras['base_clusters']
-
-    def get_paras(self):
-        paras_val = {
-            'emb_name': self.emb_name,
-            'linkage': self.linkage,
-            'alpha': self.alpha,
-            'beta': self.beta,
-            'min_att': self.min_att,
-            'max_att': self.max_att,
-            'runtime_id': self.runtime_id,
-            'split_strategy': self.split_strategy,
-            'modify_hierarchical': self.modify_hierarchical,
-        }
-        if self.modify_hierarchical:
-            paras_val['base_clusters'] = self.base_clusters
-        return paras_val
-
-    def _fit_model(self):
-        '''
-        Fit the pre-clustering model
-        :return:
-        '''
-        self.model.fit(self.embedding)
-
-    def _create_linkage(self):
-        # TODO: rewrite, redundant code, not clear naming
-        counts = np.zeros(self.model.children_.shape[0])
-        n_samples = len(self.model.labels_)
-        parents = np.full(self.model.children_.shape[0], -1)
-
-        # build empty distribution
-        if self.global_var_type == 'categorical':
-            count_of_uniques_per_attribute = [len(df) for df in self.datas.ls_mapping_chain_by_col]
-            np_data = np.zeros((max(count_of_uniques_per_attribute), len(self.datas.data_raw.columns)))
-            mask = np.arange(np_data.shape[0])[:, None] >= np.array(count_of_uniques_per_attribute)
-            np_data[mask] = self.epsilon
-            empty_distribution = pd.DataFrame(np_data, columns=self.datas.data_raw.columns)
-
-        # for each merge in agglomerative clustering, do computation
-        for i, merge in enumerate(self.model.children_):
-
-            leafPoints = []
-            self._nodesToPoints[i] = leafPoints
-
-            # left child in merge
-            left_child = merge[0]
-            current_count_left = 0  # points count of left child node
-            # compute count, mean, vars, parent
-            if left_child < n_samples:
-                current_count_left += 1
-                if self.global_var_type == 'mixed':
-                    pass
-                elif self.global_var_type == 'numeric':
-                    m_left = self.datas.data.iloc[left_child].to_numpy()
-                    var_left = np.zeros_like(m_left)
-                elif self.global_var_type == 'categorical':
-                    left_point = self.datas.data.iloc[left_child]
-                    m_left = empty_distribution.copy()
-                    for j_column in range(len(self.datas.data_raw.columns)):
-                        att_value = left_point.values[j_column]
-                        i_row = self.datas.ls_mapping_chain_by_col[j_column].loc[self.datas.ls_mapping_chain_by_col[j_column]['scaled'] == att_value].index[0]
-                        m_left.iloc[i_row, j_column] = 1
-                leafPoints.append(left_child)
-            else:
-                current_count_left += counts[left_child - n_samples]
-                parents[left_child - n_samples] = i  # correction by Fuyin Lai
-                if self.global_var_type == 'mixed':
-                    pass
-                elif self.global_var_type == 'numeric':
-                    m_left = self._meansForNodes.get(left_child - n_samples)
-                    var_left = self._varsForNodes.get(left_child - n_samples)
-                elif self.global_var_type == 'categorical':
-                    m_left = self._distributionsForNodes.get(left_child - n_samples)
-                leafPoints.extend(self._nodesToPoints[left_child - n_samples])
-            # right child
-            right_child = merge[1]
-            current_count_right = 0
-            # count, mean, vars, parent
-            if right_child < n_samples:
-                current_count_right += 1
-                if self.global_var_type == 'mixed':
-                    pass
-                elif self.global_var_type == 'numeric':
-                    m_right = self.datas.data.iloc[right_child].to_numpy()
-                    var_right = np.zeros_like(m_right)
-                elif self.global_var_type == 'categorical':
-                    right_point = self.datas.data.iloc[right_child]
-                    m_right = empty_distribution.copy()
-                    for j_column in range(len(self.datas.data_raw.columns)):
-                        att_value = right_point.values[j_column]
-                        i_row = self.datas.ls_mapping_chain_by_col[j_column].loc[self.datas.ls_mapping_chain_by_col[j_column]['scaled'] == att_value].index[0]
-                        m_right.iloc[i_row, j_column] = 1
-                leafPoints.append(right_child)
-            else:
-                current_count_right += counts[right_child - n_samples]
-                parents[right_child - n_samples] = i  # correction by Fuyin Lai
-                if self.global_var_type == 'mixed':
-                    pass
-                elif self.global_var_type == 'numeric':
-                    m_right = self._meansForNodes.get(right_child - n_samples)
-                    var_right = self._varsForNodes.get(right_child - n_samples)
-                elif self.global_var_type == 'categorical':
-                    m_right = self._distributionsForNodes.get(right_child - n_samples)
-                leafPoints.extend(self._nodesToPoints[right_child - n_samples])
-
-            # new mean, var and count for node i
-            if self.datas.global_var_type == 'mixed':
-                pass
-            elif self.global_var_type == 'numeric':
-                meanForNode = self.recur_mean(m_left, current_count_left,
-                                              m_right, current_count_right)
-                self._meansForNodes[i] = meanForNode
-                varForNode = self.recur_var(m_left, var_left, current_count_left,
-                                            m_right, var_right, current_count_right)
-                self._varsForNodes[i] = varForNode
-            elif self.global_var_type == 'categorical':
-                distForNode = self.recur_dist_categorical(m_left, current_count_left,
-                                              m_right, current_count_right)
-                self._distributionsForNodes[i] = distForNode
-            counts[i] = current_count_left + current_count_right
-
-        self._parents_of_all_nodes = {}
-        index_start = len(self.datas.data)
-        for index, children in enumerate(self.model.children_):
-            left_child = children[0]
-            right_child = children[1]
-            self._parents_of_all_nodes[left_child] = index+index_start
-            self._parents_of_all_nodes[right_child] = index+index_start
-
-        # update self
-        self._parents = parents  # without counting original points
-        self._linkage_matrix = np.column_stack([self.model.children_, self.model.distances_, counts])
-
-    def _calc_priors_agglomerative(self):
-        # TODO: rewrite, remove dl_indices for numeric
-        if self.global_var_type == 'mixed':
-            pass
-        elif self.global_var_type == 'numeric':
-            self._priors = np.array([self._meansForNodes[len(self.datas.data) - 2], self._varsForNodes[len(self.datas.data) - 2]]).T
-            self._priorsGausM = self._meansForNodes[len(self.datas.data) - 2]
-            self._priorsGausS = self._varsForNodes[len(self.datas.data) - 2]
-            # Order attribute indices per dl to use later in dl optimisation
-            unique_dls = sorted(set(self._dls))
-            # Attributes indices split per dl, used to split IC into submatrix and later to find IC value of attribute
-            self._dl_indices = collections.OrderedDict()
-            for dl in unique_dls:
-                # Fill dl_indices for one dl value
-                indices = [i for i, value in enumerate(self._dls) if value == dl]
-                self._dl_indices[dl] = indices
-        elif self.global_var_type == 'categorical':
-            self._priors = self._distributionsForNodes[len(self.datas.data) - 2]
-
-    def _calc_priors_kmeans(self):
-        if self.global_var_type == 'mixed':
-            pass
-        elif self.global_var_type == 'numeric':
-            pass
-            self._priors = np.array([np.mean(self.datas.data.values, axis=0), np.var(self.datas.data.values,axis=0)]).T
-            self._priorsGausM = self._priors[:,0]
-            self._priorsGausS = self._priors[:,1]
-        elif self.global_var_type == 'categorical':
-            count_of_uniques_per_attribute = [len(df) for df in self.datas.ls_mapping_chain_by_col]
-            np_data = np.zeros((max(count_of_uniques_per_attribute), len(self.datas.data_raw.columns)))
-            mask = np.arange(np_data.shape[0])[:, None] >= np.array(count_of_uniques_per_attribute)
-            np_data[mask] = self.epsilon
-            data_distribution = pd.DataFrame(np_data, columns=self.datas.data_raw.columns)
-            data_size = len(self.datas.data)
-            for att_label in range(len(data_distribution.columns)):
-                for col_loc in range(len(self.datas.ls_mapping_chain_by_col[att_label])):
-                    value = self.datas.ls_mapping_chain_by_col[att_label]['scaled'][col_loc]
-                    value_count = np.sum(self.datas.data.values[:, att_label] == value)
-                    value_proportion = value_count / data_size
-                    data_distribution.iloc[col_loc, att_label] = value_proportion
-            self._priors = data_distribution
-
-    # TODO: remove all recur functions to another file, because they are not related to the class
-    def recur_mean(self, mean1, count1, mean2, count2):
-        # combine two clusters
-        # given counts of points in clusters and means of clusters, & return mean of the new cluster within the recursive formula
-        return (mean1 * count1 + mean2 * count2) / (count1 + count2)
-
-    def recur_var(self, mean1, var1, count1, mean2, var2, count2):
-        # combine two clusters
-        # given counts of points in clusters and variances of clusters, also means, & return variance of the new cluster within the recursive formula
-        a = (count1 * count2 * (mean2 - mean1) ** 2) / (count1 + count2)
-        return (count1 * var1 + count2 * var2 + a) / (count1 + count2)
-
-    def recur_meanVar_merge(self, info_i, info_j):
-        count = info_i[2] + info_j[2]
-        mean = (info_i[0] * info_i[2] + info_j[0] * info_j[2]) / count
-        a = (info_i[2] * info_j[2] * (info_j[0] - info_i[0]) ** 2) / count
-        var = (info_i[2] * info_i[1] + info_j[2] * info_j[1] + a) / count
-        return [mean, var, count]
-
-    def recur_meanVar_remove(self, mean, var, count, mean1, var1, count1):
-        # remove cluster 1 from original cluster, and return mean, variance and count for the left cluster
-        count2 = count - count1
-        if count2 == 0:
-            return None
-        mean2 = (count * mean - count1 * mean1) / count2
-        var2 = (count * var) / count2 - (count1 * var1) / count2 - (count1 * (mean1 - mean2) ** 2) / count
-        negas_var2 = var2 < 0
-        var2[negas_var2] = 0
-        return [mean2, var2, count2]
-
-    def recur_dist_categorical(self, distribution1: pd.DataFrame, count1: int, distribution2: pd.DataFrame, count2: int) -> pd.DataFrame:
-        if (count1 + count2) == 0:
-            return None
-        distribution3_value = (distribution1.values * count1 + distribution2.values * count2)/(count1 + count2)
-        distribution3 = pd.DataFrame(distribution3_value, columns=distribution1.columns)
-
-        return distribution3
-
-    # given means, vars, n_samples of a cluster, return its ic, vectorization for attributes
-    # todo: not revised yet
-    def ic_one_info(self, means_cluster, vars_cluster, n_samples):
-        # with warnings.catch_warnings(record=True) as w:
-        #     warnings.simplefilter('always')
-        #     warningNum = len(w)
-        #     stds_cluster = vars_cluster ** 0.5
-        #     if len(w) != warningNum:
-        #         breakpoint()
-        # stds_cluster = vars_cluster ** 0.5
-        cluster_ic = []
-        if type(means_cluster) == type(None) and type(vars_cluster) == type(None):
-            return np.zeros((len(self.datas.data.columns), ))
-        if self.global_var_type == 'mixed':
-            pass
-        elif self.global_var_type == 'categorical':
-            means_binary_cluster = means_cluster
-            ic1 = n_samples * utils.kl_bernoulli(means_binary_cluster, self._priorsBernM)
-            cluster_ic.extend(ic1)
-        elif self.global_var_type == 'numeric':
-            # means_gaussian_cluster = means_cluster
-            # stds_gaussian_cluster = stds_cluster
-            ic2 = n_samples * utils.kl_gaussian(means_cluster, vars_cluster,
-                                                                   self._priorsGausM,
-                                                                   self._priorsGausS)
-            cluster_ic.extend(ic2)
-
-        return cluster_ic
-
-    def _get_samples_count_given_medoids_idxes(self, medoids_idxes):
-
-        samples_count = 0
-        for medoid_idx in medoids_idxes:
-            cluster_label = medoid_idx
-            set_of_samples = np.where(self.kmedoids_model.labels==cluster_label)[0]
-            samples_count += len(set_of_samples)
-
-        return samples_count
-
-    def kl_categorical(self, distribution_cluster: np.ndarray, epsilon: float = 0.00001) -> np.ndarray:
-        # kl(p||q) = kl(cluster||prior)
-        # kl(p||q) = kl(cluster||prior)
-
-        p = copy.copy(distribution_cluster)
-        q = copy.copy(self._priors.values)
-        p_safe = np.where(p <= 0, epsilon, p)
-
-        kl_mid_value = p * np.log(p_safe/q)
-        kl = np.sum(kl_mid_value, axis=0)
-
-        return kl
-
-    # todo: not revised yet, delete or remove kl_categorical to other places
-    def ic_categorical(self, distribution_cluster: pd.DataFrame, size_cluster: int) -> np.ndarray:
-        ic = size_cluster * self.kl_categorical(distribution_cluster.values)
-        return ic
 
     ######################################## step 2: optimise: either run InfoClus or read from cache ########################################
-    def optimise(self, paras=None,
-
+    def optimise(self,
+                 alpha=None, beta=None, min_att=None, max_att=None, run_id=None,split_strategy_id=None,
                  allow_cache=True, show_brief_result=False):
         '''
         optimise result with current hyperparameters, the process is as follows:
@@ -550,76 +293,30 @@ class InfoClus:
         '''
         # update hyperparameters of self
         self.allow_cache = allow_cache
-        if paras is not None:
-            self.emb_name = paras['emb_name']
-            self.linkage = paras['linkage']
-            self.model = AgglomerativeClustering(linkage=self.linkage, distance_threshold=0, n_clusters=None)
-            if paras['alpha'] is not None:
-                self.alpha = paras['alpha']
-            self.beta = paras['beta']
-            self.min_att = paras['min_att']
-            self.max_att = paras['max_att']
-            self.runtime_id = paras['runtime_id']
-            self.runtime = RUNTIME_OPTIONS[self.runtime_id]
-            self.split_strategy = paras['split_strategy']
-            self.modify_hierarchical = paras['modify_hierarchical']
-            if self.modify_hierarchical:
-                self.base_clusters = paras['base_clusters']
-
-        # check cache
+        self.paras_obj.update_paras(alpha,beta,min_att,max_att,run_id,split_strategy_id)
         cache_name, previously_calculated = self.check_cache()
         # start clustering when no cache
         if previously_calculated is None:
-            self._si_opt = 0
-            # todo: merge the two run_infoclus into one, and using if condition to control
-            if isinstance(self.model, AgglomerativeClustering):
-                self._run_infoclus_agglomerative(self.split_strategy)
-            if isinstance(self.model, KMeans):
-                self._run_infoclus_kmeans()
+            self.result_obj = _Result(self.model_obj.prior[0], self.model_obj.prior[1], self.data_obj.size)
+            self._run_infoclus_agglomerative(self.paras_obj.split_strategy)
             if self.allow_cache:
                 self.create_cache_version(cache_name)
+        self.print_result_in_terminal()
 
-        if show_brief_result:
-            num_att = 0
-            for cluster_idx in range(len(self._attributes_opt)):
-                num_att += len(self._attributes_opt[cluster_idx])
-            print(f'{self.name} {self.emb_name} a: {self.alpha} b: {self.beta} rt: {self.runtime} s num of attr.: {num_att} \n')
-        else:
-            print(f'\nInfoClus - Dataset: {self.name} Emb: {self.emb_name} Alpha: {self.alpha} Beta: {self.beta} Ref. Runtime: {self.runtime}')
-            if __debug__:
-                print('checking if the sum of clusters idxes equals to the data size: ', end='')
-            print(f'Count of Clusters: {len(set(self._clustering_opt))}')
-            for cluster_idx in range(len(self._attributes_opt)):
-                print(f"    cluster {cluster_idx}:")
-                print(f'        count of points: {sum(self._clustering_opt == cluster_idx)}')
-                print(f'        attributes: ', end='')
-                for j in self._attributes_opt[cluster_idx]:
-                    print(f'{self.datas.data.columns[j]} ', end='')
-                print("")
-            print("SI: ", self._si_opt)
-
-        return self._clustering_opt, self.embedding
-
-    def _refresh_all_variables(self):
-        self._si_opt = 0  # value of si for this clustering
-        self._clustering_opt = None  # final clustering labels for each point
-        self._attributes_opt = None  # chosen attributes for each cluster
-        self._split_nodes_opt = []
-
-        self._ic_opt = []  # ic of all attributes for each cluster
-
-        self._clustersRelatedInfo = []  # means, vars, and counts for each cluster
-        if self.global_var_type == 'mixed':
-            pass
-        elif self.global_var_type == 'numeric':
-            self._clustersRelatedInfo.append([self._priors[:, 0], self._priors[:, 1], len(self.datas.data)])
-        elif self.global_var_type == 'categorical':
-            self._clustersRelatedInfo.append([self._priors, len(self.datas.data)])
-
-        self._clusters_idxes_opt = [list(range(len(self.datas.data)))] # all points belong to cluster 0
-
-        self._total_ic_opt = 0
-        self._total_dl_opt = 0  # value for summing up length of attributes
+    def print_result_in_terminal(self):
+        print(
+            f'\nInfoClus - Dataset: {self.data_obj.name} Emb: {self.paras_obj.emb_name} Alpha: {self.paras_obj.alpha} Beta: {self.paras_obj.beta} Ref. Runtime: {self.paras_obj.runtime}')
+        if __debug__:
+            print('checking if the sum of clusters idxes equals to the data size: ', end='')
+        print(f'Count of Clusters: {len(self.result_obj.clusters_idxes_opt)}')
+        for cluster_idx in range(len(self.result_obj.clusters_idxes_opt)):
+            print(f"    cluster {cluster_idx}:")
+            print(f'        count of points: {len(self.result_obj.clusters_idxes_opt[cluster_idx])}')
+            print(f'        attributes: ', end='')
+            for j in self.result_obj.attributes_opt[cluster_idx]:
+                print(f'{self.data_obj.data.columns[j]} ', end='')
+            print("")
+        print("SI: ", self._si_opt)
 
     ######################################## step 3: run InfoClus by agglomerative ########################################
     def _run_infoclus_agglomerative(self, splitting_startegy: str = 'by_node'):
@@ -631,7 +328,7 @@ class InfoClus:
         Note: one split means enumerating all possible splits(nodes) and choose the best one to split one cluster into two
         '''
         #################################### step1: initialization result-related variables #########################################
-        self._refresh_all_variables()
+        # self._refresh_all_variables()
 
         clustering_new = None
         ic_new = None
@@ -649,7 +346,7 @@ class InfoClus:
             samples_size = len(self.datas.data)
             if self.modify_hierarchical:
                 samples_size = self._get_samples_count_given_medoids_idxes(self._clusters_idxes_opt[0])
-            self._ic_opt.append(self.ic_one_info(self._priors[:, 0], self._priors[:, 1], samples_size))
+            self._ic_opt.append(self.ic_one_info(self._priors[:, 0], self._priors[:, 1], samples_size, self.model_obj.prior))
 
             count_iterations = 0
             start = time.time()
@@ -799,7 +496,8 @@ class InfoClus:
             ics.append(self.ic_one_info(
                 statistics_for_computing_ics[new_cluster_label][0],
                 statistics_for_computing_ics[new_cluster_label][1],
-                self._get_samples_count_given_medoids_idxes(clusters_idxes[new_cluster_label]) if self.modify_hierarchical else statistics_for_computing_ics[new_cluster_label][2]
+                self._get_samples_count_given_medoids_idxes(clusters_idxes[new_cluster_label]) if self.modify_hierarchical else statistics_for_computing_ics[new_cluster_label][2],
+                self.model_obj.prior
             ))
             statistics_for_computing_ics[old_cluster_label] = self.recur_meanVar_remove(
                 statistics_for_computing_ics[old_cluster_label][0],
@@ -818,7 +516,8 @@ class InfoClus:
                 ics[old_cluster_label] = self.ic_one_info(
                     statistics_for_computing_ics[old_cluster_label][0],
                     statistics_for_computing_ics[old_cluster_label][1],
-                    self._get_samples_count_given_medoids_idxes(clusters_idxes[old_cluster_label]) if self.modify_hierarchical else statistics_for_computing_ics[old_cluster_label][2],
+                    self.model_obj.get_samples_count_given_medoids_idxes(clusters_idxes[old_cluster_label]) if self.paras_obj.modify_hierarchical else statistics_for_computing_ics[old_cluster_label][2],
+                    self.model_obj.prior
                 )
         elif self.global_var_type == 'categorical':
             pass
@@ -1018,7 +717,7 @@ class InfoClus:
                 if self.modify_hierarchical:
                     medoids_idxes = clusters_idxes[cluster_label]
                     samples_count = self._get_samples_count_given_medoids_idxes(medoids_idxes)
-                ics_sibling.append(self.ic_one_info(statictics[0], statictics[1], samples_count))
+                ics_sibling.append(self.ic_one_info(statictics[0], statictics[1], samples_count, self.model_obj.prior))
         elif self.global_var_type == 'categorical':
             pass
 
@@ -1139,8 +838,8 @@ class InfoClus:
 
     def check_cache(self):
 
-        current_paras = self.get_paras()
-        cache_name = self.name + utils.get_hashkey_from_dict(current_paras)
+        current_paras = self.paras_obj.get_paras()
+        cache_name = self.data_obj.name + get_hashkey_from_dict(current_paras)
 
         previously_calculated = from_cache(os.path.join(self.cache_path, cache_name))
         if previously_calculated is not None:
@@ -1284,7 +983,7 @@ class InfoClus:
                     mean_cluster = np.mean(cluster, axis=0)
                     var_cluster = np.var(cluster, axis=0)
                     count_cluster = len(cluster)
-                    ic_cluster = self.ic_one_info(mean_cluster,var_cluster,count_cluster)
+                    ic_cluster = self.ic_one_info(mean_cluster,var_cluster,count_cluster,self.model_obj.prior)
                     ics.append(ic_cluster)
                 elif self.global_var_type == 'categorical':
                     count_of_uniques_per_attribute = [len(df) for df in self.datas.ls_mapping_chain_by_col]
@@ -1311,3 +1010,197 @@ class InfoClus:
                 if self.global_var_type == 'categorical':
                     self._clustersRelatedInfo = clustering_info_k
         print(f"\n done K: {k}")
+
+
+    #
+    # def _create_linkage(self):
+    #     # counts = np.zeros(self.model.children_.shape[0])
+    #     n_samples = len(self.model.labels_)
+    #     parents = np.full(self.model.children_.shape[0], -1)
+    #
+    #     # build empty distribution
+    #     if self.global_var_type == 'categorical':
+    #         count_of_uniques_per_attribute = [len(df) for df in self.datas.ls_mapping_chain_by_col]
+    #         np_data = np.zeros((max(count_of_uniques_per_attribute), len(self.datas.data_raw.columns)))
+    #         mask = np.arange(np_data.shape[0])[:, None] >= np.array(count_of_uniques_per_attribute)
+    #         np_data[mask] = self.epsilon
+    #         empty_distribution = pd.DataFrame(np_data, columns=self.datas.data_raw.columns)
+    #
+    #     # for each merge in agglomerative clustering, do computation
+    #     for i, merge in enumerate(self.model.children_):
+    #
+    #         leafPoints = []
+    #         self._nodesToPoints[i] = leafPoints
+    #
+    #         # left child in merge
+    #         left_child = merge[0]
+    #         current_count_left = 0  # points count of left child node
+    #         # compute count, mean, vars, parent
+    #         if left_child < n_samples:
+    #             current_count_left += 1
+    #             if self.global_var_type == 'mixed':
+    #                 pass
+    #             elif self.global_var_type == 'numeric':
+    #                 m_left = self.datas.data.iloc[left_child].to_numpy()
+    #                 var_left = np.zeros_like(m_left)
+    #             elif self.global_var_type == 'categorical':
+    #                 left_point = self.datas.data.iloc[left_child]
+    #                 m_left = empty_distribution.copy()
+    #                 for j_column in range(len(self.datas.data_raw.columns)):
+    #                     att_value = left_point.values[j_column]
+    #                     i_row = self.datas.ls_mapping_chain_by_col[j_column].loc[self.datas.ls_mapping_chain_by_col[j_column]['scaled'] == att_value].index[0]
+    #                     m_left.iloc[i_row, j_column] = 1
+    #             leafPoints.append(left_child)
+    #         else:
+    #             # current_count_left += counts[left_child - n_samples]
+    #             parents[left_child - n_samples] = i  # correction by Fuyin Lai
+    #             if self.global_var_type == 'mixed':
+    #                 pass
+    #             elif self.global_var_type == 'numeric':
+    #                 m_left = self._meansForNodes.get(left_child - n_samples)
+    #                 var_left = self._varsForNodes.get(left_child - n_samples)
+    #             elif self.global_var_type == 'categorical':
+    #                 m_left = self._distributionsForNodes.get(left_child - n_samples)
+    #             leafPoints.extend(self._nodesToPoints[left_child - n_samples])
+    #         # right child
+    #         right_child = merge[1]
+    #         current_count_right = 0
+    #         # count, mean, vars, parent
+    #         if right_child < n_samples:
+    #             current_count_right += 1
+    #             if self.global_var_type == 'mixed':
+    #                 pass
+    #             elif self.global_var_type == 'numeric':
+    #                 m_right = self.datas.data.iloc[right_child].to_numpy()
+    #                 var_right = np.zeros_like(m_right)
+    #             elif self.global_var_type == 'categorical':
+    #                 right_point = self.datas.data.iloc[right_child]
+    #                 m_right = empty_distribution.copy()
+    #                 for j_column in range(len(self.datas.data_raw.columns)):
+    #                     att_value = right_point.values[j_column]
+    #                     i_row = self.datas.ls_mapping_chain_by_col[j_column].loc[self.datas.ls_mapping_chain_by_col[j_column]['scaled'] == att_value].index[0]
+    #                     m_right.iloc[i_row, j_column] = 1
+    #             leafPoints.append(right_child)
+    #         else:
+    #             # current_count_right += counts[right_child - n_samples]
+    #             parents[right_child - n_samples] = i  # correction by Fuyin Lai
+    #             if self.global_var_type == 'mixed':
+    #                 pass
+    #             elif self.global_var_type == 'numeric':
+    #                 m_right = self._meansForNodes.get(right_child - n_samples)
+    #                 var_right = self._varsForNodes.get(right_child - n_samples)
+    #             elif self.global_var_type == 'categorical':
+    #                 m_right = self._distributionsForNodes.get(right_child - n_samples)
+    #             leafPoints.extend(self._nodesToPoints[right_child - n_samples])
+    #
+    #         # new mean, var and count for node i
+    #         if self.datas.global_var_type == 'mixed':
+    #             pass
+    #         elif self.global_var_type == 'numeric':
+    #             meanForNode = self.recur_mean(m_left, current_count_left,
+    #                                           m_right, current_count_right)
+    #             self._meansForNodes[i] = meanForNode
+    #             varForNode = self.recur_var(m_left, var_left, current_count_left,
+    #                                         m_right, var_right, current_count_right)
+    #             self._varsForNodes[i] = varForNode
+    #         elif self.global_var_type == 'categorical':
+    #             distForNode = self.recur_dist_categorical(m_left, current_count_left,
+    #                                           m_right, current_count_right)
+    #             self._distributionsForNodes[i] = distForNode
+    #         # counts[i] = current_count_left + current_count_right
+    #
+    #     self._parents_of_all_nodes = {}
+    #     index_start = len(self.datas.data)
+    #     for index, children in enumerate(self.model.children_):
+    #         left_child = children[0]
+    #         right_child = children[1]
+    #         self._parents_of_all_nodes[left_child] = index+index_start
+    #         self._parents_of_all_nodes[right_child] = index+index_start
+    #
+    #     # update self
+    #     # self._parents = parents  # without counting original points
+    #     # self._linkage_matrix = np.column_stack([self.model.children_, self.model.distances_, counts])
+
+    #
+    # def _calc_priors_agglomerative(self):
+    #     # TODO: rewrite, remove dl_indices for numeric
+    #     if self.global_var_type == 'mixed':
+    #         pass
+    #     elif self.global_var_type == 'numeric':
+    #         self._priors = np.array([self._meansForNodes[len(self.datas.data) - 2], self._varsForNodes[len(self.datas.data) - 2]]).T
+    #         self._priorsGausM = self._meansForNodes[len(self.datas.data) - 2]
+    #         self._priorsGausS = self._varsForNodes[len(self.datas.data) - 2]
+    #         # Order attribute indices per dl to use later in dl optimisation
+    #         unique_dls = sorted(set(self._dls))
+    #         # Attributes indices split per dl, used to split IC into submatrix and later to find IC value of attribute
+    #         self._dl_indices = collections.OrderedDict()
+    #         for dl in unique_dls:
+    #             # Fill dl_indices for one dl value
+    #             indices = [i for i, value in enumerate(self._dls) if value == dl]
+    #             self._dl_indices[dl] = indices
+    #     elif self.global_var_type == 'categorical':
+    #         self._priors = self._distributionsForNodes[len(self.datas.data) - 2]
+
+    #
+    # def _calc_priors_kmeans(self):
+    #     if self.global_var_type == 'mixed':
+    #         pass
+    #     elif self.global_var_type == 'numeric':
+    #         pass
+    #         self._priors = np.array([np.mean(self.datas.data.values, axis=0), np.var(self.datas.data.values,axis=0)]).T
+    #         self._priorsGausM = self._priors[:,0]
+    #         self._priorsGausS = self._priors[:,1]
+    #     elif self.global_var_type == 'categorical':
+    #         count_of_uniques_per_attribute = [len(df) for df in self.datas.ls_mapping_chain_by_col]
+    #         np_data = np.zeros((max(count_of_uniques_per_attribute), len(self.datas.data_raw.columns)))
+    #         mask = np.arange(np_data.shape[0])[:, None] >= np.array(count_of_uniques_per_attribute)
+    #         np_data[mask] = self.epsilon
+    #         data_distribution = pd.DataFrame(np_data, columns=self.datas.data_raw.columns)
+    #         data_size = len(self.datas.data)
+    #         for att_label in range(len(data_distribution.columns)):
+    #             for col_loc in range(len(self.datas.ls_mapping_chain_by_col[att_label])):
+    #                 value = self.datas.ls_mapping_chain_by_col[att_label]['scaled'][col_loc]
+    #                 value_count = np.sum(self.datas.data.values[:, att_label] == value)
+    #                 value_proportion = value_count / data_size
+    #                 data_distribution.iloc[col_loc, att_label] = value_proportion
+    #         self._priors = data_distribution
+
+    #
+    # def _refresh_all_variables(self):
+    #     self._si_opt = 0  # value of si for this clustering
+    #     self._clustering_opt = None  # final clustering labels for each point
+    #     self._attributes_opt = None  # chosen attributes for each cluster
+    #     self._split_nodes_opt = []
+    #
+    #     self._ic_opt = []  # ic of all attributes for each cluster
+    #
+    #     self._clustersRelatedInfo = []  # means, vars, and counts for each cluster
+    #     if self.global_var_type == 'mixed':
+    #         pass
+    #     elif self.global_var_type == 'numeric':
+    #         self._clustersRelatedInfo.append([self._priors[:, 0], self._priors[:, 1], len(self.datas.data)])
+    #     elif self.global_var_type == 'categorical':
+    #         self._clustersRelatedInfo.append([self._priors, len(self.datas.data)])
+    #
+    #     self._clusters_idxes_opt = [list(range(len(self.datas.data)))] # all points belong to cluster 0
+    #
+    #     self._total_ic_opt = 0
+    #     self._total_dl_opt = 0  # value for summing up length of attributes
+
+    # def kl_categorical(self, distribution_cluster: np.ndarray, epsilon: float = 0.00001) -> np.ndarray:
+    #     # kl(p||q) = kl(cluster||prior)
+    #     # kl(p||q) = kl(cluster||prior)
+    #
+    #     p = copy.copy(distribution_cluster)
+    #     q = copy.copy(self._priors.values)
+    #     p_safe = np.where(p <= 0, epsilon, p)
+    #
+    #     kl_mid_value = p * np.log(p_safe/q)
+    #     kl = np.sum(kl_mid_value, axis=0)
+    #
+    #     return kl
+
+    # # todo: not revised yet, delete or remove kl_categorical to other places
+    # def ic_categorical(self, distribution_cluster: pd.DataFrame, size_cluster: int) -> np.ndarray:
+    #     ic = size_cluster * self.kl_categorical(distribution_cluster.values)
+    #     return ic
