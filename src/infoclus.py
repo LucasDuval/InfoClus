@@ -51,6 +51,8 @@ class _Data:
         self.cache_path = os.path.join(self.dataset_folder, 'cache')
 
         df_data = pd.read_csv(os.path.join(self.dataset_folder, f'{dataset_name}.csv'))
+
+
         factorized_data, ls_mapping_chain_by_col, self.data, self.data_raw = get_scaled_data(df_data, REPLACE_NAN)
         self.size = self.data.shape[0]
         if factorized_data is not None and ls_mapping_chain_by_col is not None:
@@ -73,36 +75,147 @@ class _Embeddings:
     """
     def __init__(self, data: _Data, embedding: np.ndarray=None):
 
-        self.all_embeddings = get_embeddings(data.data_raw.values)
+        embeddings_path = os.path.join(data.dataset_folder, 'cache', 'embeddings.json')
+        if os.path.exists(embeddings_path):
+            with open("embeddings.json", "r", encoding="utf-8") as f:
+                embeddings = json.load(f)
+            self.all_embeddings = embeddings
+        else:
+            embeddings = get_embeddings(data.data_raw.values)
+            self.all_embeddings = embeddings
+            with open("embeddings.json", "w", encoding="utf-8") as f:
+                json.dump(embeddings, f)
+
         if embedding is None:
             self.embedding = self.all_embeddings['tsne']
         else:
             self.all_embeddings['user_given'] = embedding
             self.embedding = embedding
+            with open("embeddings.json", "w", encoding="utf-8") as f:
+                json.dump(self.all_embeddings, f)
+
+
+class _Model:
+    """
+    models
+    Attributes:
+        model
+
+        meansForNodes
+        varsForNodes
+        nodesToPoints
+        parents
+    """
+    def __init__(self, data_obj:_Data, linkage, embeddings_obj: _Embeddings):
+        self.model = AgglomerativeClustering(linkage=linkage, distance_threshold=0, n_clusters=None)
+        self.kmedoids_model = None
+        self.model.fit(embeddings_obj.embedding)
+        self._calc_statistics_numeric(data_obj.data.values)
+        self._record_parents()
+
+    def _calc_statistics_numeric(self, data: np.ndarray):
+
+        n_samples = len(self.model.labels_)
+        self.meansForNodes = {}
+        self.varsForNodes = {}
+        self.nodesToPoints = {}
+        for i, merge in enumerate(self.model.children_):
+
+            self.nodesToPoints[i + n_samples] = []
+
+            for j, node in enumerate(merge):
+                if node < n_samples:
+                    self.meansForNodes[node] = data[node]
+                    self.varsForNodes[node] = np.zeros_like(self.meansForNodes[node])
+                    self.nodesToPoints[node] = [node]
+                    self.nodesToPoints[i + n_samples].append(node)
+                else:
+                    self.nodesToPoints[i + n_samples].append(self.nodesToPoints[node])
+
+            self.meansForNodes[i + n_samples] = recur_mean(self.meansForNodes[merge[0]], len(self.nodesToPoints[merge[0]]),
+                                                     self.meansForNodes[merge[1]], len(self.nodesToPoints[merge[1]]))
+            self.varsForNodes[i + n_samples] = recur_var(self.meansForNodes[merge[0]],
+                                                               self.varsForNodes[merge[0]],
+                                                               len(self.nodesToPoints[merge[0]]),
+                                                               self.meansForNodes[merge[1]],
+                                                               self.varsForNodes[merge[1]],
+                                                               len(self.nodesToPoints[merge[1]])
+                                                               )
+
+        self.prior = [self.meansForNodes.get(len(data)*2-2), self.varsForNodes.get(len(data)*2-2)]
+
+    def _record_parents(self):
+
+        n_samples = len(self.model.labels_)
+
+        self.parents = {}
+        for index, children in enumerate(self.model.children_):
+            left_child = children[0]
+            right_child = children[1]
+            self.parents[left_child] = index + n_samples
+            self.parents[right_child] = index + n_samples
+
+    def get_ancestors(self, node_idx):
+        node_ancestors_idxes = []
+        child = node_idx
+        parent = self.parents[child]
+        while self.parents.keys().__contains__(child):
+            node_ancestors_idxes.append(self.parents[child])
+            child = parent
+            if self.parents.keys().__contains__(child):
+                parent = self.parents[child]
+            else:
+                break
+        return node_ancestors_idxes
+
+    def find_closest_ancestor(self, node_ancestor_idxes, candidate_ancestors_with_labels):
+
+        closest_ancestor = None
+        closest_ancestor_cluster_label = None
+        for index, ancestor_info in enumerate(candidate_ancestors_with_labels):
+            ancestor_cluster_label = index
+            ancestor_node_idx = ancestor_info[0]
+            ancestor_ancestors = ancestor_info[1]
+            if ancestor_node_idx in node_ancestor_idxes:
+                if closest_ancestor is None:
+                    closest_ancestor = ancestor_node_idx
+                    closest_ancestor_cluster_label = ancestor_cluster_label
+                elif closest_ancestor in ancestor_ancestors:
+                    closest_ancestor = ancestor_node_idx
+                    closest_ancestor_cluster_label = ancestor_cluster_label
+
+        return closest_ancestor, closest_ancestor_cluster_label
+
+    def get_samples_count_given_medoids_idxes(self, medoids_idxes):
+
+        samples_count = 0
+        for medoid_idx in medoids_idxes:
+            cluster_label = medoid_idx
+            set_of_samples = np.where(self.kmedoids_model.labels==cluster_label)[0]
+            samples_count += len(set_of_samples)
+        return samples_count
 
 class _Paras:
-    def __init__(self, data_obj: _Data, embeddings_obj: _Embeddings,
+    def __init__(self, data_obj: _Data, embeddings_obj: _Embeddings, model_obj: _Model,
                  alpha, emb_name, linkage, beta, min_att, max_att, run_id,
                  split_strategy_id,
                  modify_hierarchical, base_clusters):
 
         if modify_hierarchical:
+            if base_clusters is None:
+                self.base_clusters = int(data_obj.size / 5)
+            else:
+                self.base_clusters = base_clusters
             diss = euclidean_distances(embeddings_obj.embedding)
-            self.kmedoids_model = kmedoids.fasterpam(diss, base_clusters)
-            self.kmedoids_clustering = self.kmedoids_model.labels
-            data_obj.data = data_obj.data.iloc[self.kmedoids_model.medoids]
+            model_obj.kmedoids_model = kmedoids.fasterpam(diss, self.base_clusters)
+            data_obj.data = data_obj.data.iloc[model_obj.kmedoids_model.medoids]
             data_obj.size = data_obj.data.shape[0]
-            embeddings_obj.embedding = embeddings_obj.embedding[self.kmedoids_model.medoids]
+            embeddings_obj.embedding = embeddings_obj.embedding[model_obj.kmedoids_model.medoids]
 
         if alpha is None:
             self.alpha = int(data_obj.size / 10)
         else:
             self.alpha = alpha
-        if modify_hierarchical:
-            if base_clusters is None:
-                self.base_clusters = int(data_obj.size / 5)
-            else:
-                self.base_clusters = base_clusters
         self.beta = beta
         self.min_att = min_att
         self.max_att = max_att
@@ -115,13 +228,13 @@ class _Paras:
 
     @property
     def modify_hierarchical(self):
-        return self.modify_hierarchical
+        return self._modify_hierarchical
     @property
     def linkage(self):
-        return self.linkage
+        return self._linkage
     @property
     def emb_name(self):
-        return self.emb_name
+        return self._emb_name
 
     def update_paras(self, alpha, beta, min_att, max_att, run_id, split_strategy_id):
         if alpha is not None:
@@ -154,76 +267,6 @@ class _Paras:
             paras_val['base_clusters'] = self.base_clusters
         return paras_val
 
-class _Model:
-    """
-    models
-    Attributes:
-        model
-        kmedoids_model: optional
-        kmedoids_clustering: optional
-
-        meansForNodes
-        varsForNodes
-        nodesToPoints
-        parents
-    """
-    def __init__(self, data_obj:_Data, paras: dict, embeddings_obj: _Embeddings):
-        self.model = AgglomerativeClustering(linkage=paras['linkage'], distance_threshold=0, n_clusters=None)
-        self.model.fit(embeddings_obj.embedding)
-        self._calc_statistics_numeric(data_obj.data.values)
-        self._record_parents()
-
-    def _calc_statistics_numeric(self, data: np.ndarray):
-
-        n_samples = len(self.model.labels_)
-        self.meansForNodes = {}
-        self.varsForNodes = {}
-        self.nodesToPoints = {}
-        for i, merge in enumerate(self.model.children_):
-
-            self.nodesToPoints[i + n_samples] = []
-
-            for j, node in enumerate(merge):
-                if node < n_samples:
-                    self.meansForNodes[node] = data[node]
-                    self.varsForNodes[node] = np.zeros_like(self.meansForNodes[node])
-                    self.nodesToPoints[node] = [node]
-                    self.nodesToPoints[i + n_samples].append(node)
-                else:
-                    self.nodesToPoints[i + n_samples].append(self.nodesToPoints[node])
-
-            self.meansForNodes[i + n_samples] = recur_mean(self.meansForNodes[merge[0]], self.nodesToPoints[merge[0]],
-                                                     self.meansForNodes[merge[1]], self.nodesToPoints[merge[1]])
-            self.varsForNodes[i + n_samples] = recur_var(self.meansForNodes[merge[0]],
-                                                               self.varsForNodes[merge[0]],
-                                                               len(self.nodesToPoints[merge[0]]),
-                                                               self.meansForNodes[merge[1]],
-                                                               self.varsForNodes[merge[1]],
-                                                               len(self.nodesToPoints[merge[1]])
-                                                               )
-
-        self.prior = [self.meansForNodes[-1], self.varsForNodes[-1]]
-
-    def _record_parents(self):
-
-        n_samples = len(self.model.labels_)
-
-        self.parents = {}
-        for index, children in enumerate(self.model.children_):
-            left_child = children[0]
-            right_child = children[1]
-            self.parents[left_child] = index + n_samples
-            self.parents[right_child] = index + n_samples
-
-    def get_samples_count_given_medoids_idxes(self, medoids_idxes):
-
-        samples_count = 0
-        for medoid_idx in medoids_idxes:
-            cluster_label = medoid_idx
-            set_of_samples = np.where(self.kmedoids_model.labels==cluster_label)[0]
-            samples_count += len(set_of_samples)
-        return samples_count
-
 class _Result:
     def __init__(self, mean_prior: np.ndarray, var_prior: np.ndarray, sample_size: int):
 
@@ -231,17 +274,33 @@ class _Result:
         self.si_opt = 0  # value of si for this clustering
         self.clusters_idxes_opt = [[0]*sample_size]  # all points belong to cluster 0
         self.attributes_opt = []  # chosen attributes for each cluster
-
+        self.clusters_related_statistics_opt = [[mean_prior, var_prior, sample_size]]
         self._split_nodes_opt = []
-        self._clustersRelatedInfo = [[mean_prior, var_prior, sample_size]]
 
-    def get_clustering(self):
+        self.clustering = None
+        self.count_clusters = None
+        self.ic_val_per_cluster = None
 
-        n_samples = sum(len(idxes) for idxes in self.clusters_idxes_opt)
-        clustering = np.full(n_samples, -1)  #
-        for cluster_id, cluster_idxes in enumerate(self.clusters_idxes_opt):
-            clustering[cluster_idxes] = cluster_id
-        return clustering
+    def update(self, ic_new, si_new, clusters_idxes_new, attributes_new, clusters_related_statistics_new, split_nodes_new):
+        self.ic_opt = ic_new
+        self.si_opt = si_new
+        self.clusters_idxes_opt = clusters_idxes_new
+        self.attributes_opt = attributes_new
+        self.clusters_related_statistics_opt = clusters_related_statistics_new
+        self._split_nodes_opt = split_nodes_new
+
+    def extend_results(self, model_obj: _Model):
+
+        clustering = np.full(len(model_obj.kmedoids_model.labels), -1)
+        for cluster_label, medoids_idxes in enumerate(self.clusters_idxes_opt):
+            for medoid in medoids_idxes:
+                set_of_samples = np.where(model_obj.kmedoids_model.labels == medoid)[0]
+                clustering[set_of_samples] = cluster_label
+        self.clustering = clustering
+        self.count_clusters = len(self.clusters_idxes_opt)
+        self.ic_val_per_cluster = [0]*self.count_clusters
+        for i in range(self.count_clusters):
+            self.ic_val_per_cluster[i] = sum(self.ic_opt[i][j] for j in self.attributes_opt[i])
 
 class InfoClus:
 
@@ -265,11 +324,12 @@ class InfoClus:
 
         self.data_obj = _Data(dataset_name, data_folder)
         self.embeddings_obj = _Embeddings(self.data_obj, embedding)
-        self.paras_obj = _Paras(self.data_obj, self.embeddings_obj,
+        self.model_obj = _Model(self.data_obj, linkage, self.embeddings_obj)
+
+        self.paras_obj = _Paras(self.data_obj, self.embeddings_obj, self.model_obj,
                  alpha, emb_name, linkage, beta, min_att, max_att, run_id,
                  split_strategy_id,
                  modify_hierarchical, base_clusters)
-        self.model_obj = _Model(self.data_obj, self.paras_obj.get_paras(), self.embeddings_obj)
         self.result_obj = _Result(self.model_obj.prior[0], self.model_obj.prior[1], self.data_obj.size)
 
         if self.allow_cache:
@@ -298,7 +358,7 @@ class InfoClus:
         # start clustering when no cache
         if previously_calculated is None:
             self.result_obj = _Result(self.model_obj.prior[0], self.model_obj.prior[1], self.data_obj.size)
-            self._run_infoclus_agglomerative(self.paras_obj.split_strategy)
+            self._run_infoclus_agglomerative()
             if self.allow_cache:
                 self.create_cache_version(cache_name)
         self.print_result_in_terminal()
@@ -316,10 +376,10 @@ class InfoClus:
             for j in self.result_obj.attributes_opt[cluster_idx]:
                 print(f'{self.data_obj.data.columns[j]} ', end='')
             print("")
-        print("SI: ", self._si_opt)
+        print("SI: ", self.result_obj.si_opt)
 
     ######################################## step 3: run InfoClus by agglomerative ########################################
-    def _run_infoclus_agglomerative(self, splitting_startegy: str = 'by_node'):
+    def _run_infoclus_agglomerative(self):
         '''
         Here is the core part of Infoclus algorithm, the process is as follows:
         1. initialization of all result-related variables as None
@@ -327,471 +387,146 @@ class InfoClus:
 
         Note: one split means enumerating all possible splits(nodes) and choose the best one to split one cluster into two
         '''
-        #################################### step1: initialization result-related variables #########################################
-        # self._refresh_all_variables()
 
-        clustering_new = None
-        ic_new = None
+        splitting_startegy = self.paras_obj.split_strategy
 
         #################################### step2: iteration #########################################
 
         if splitting_startegy == 'by_node':
 
-            # nodes_idx = range(len(self.datas.data)*2 - 2)  # count from 0, without leaf points
-            # parents = self._parents[:-1]  # count from 0, without leaf points
-            # nodes = [[x, y] for x, y in zip(nodes_idx, parents)]
-            self._split_candidates = copy.copy(self._parents_of_all_nodes)  # the left nodes that could be used for further splitting
-            self._split_nodes_opt.append([len(self.datas.data) * 2 - 2, []])
-
-            samples_size = len(self.datas.data)
-            if self.modify_hierarchical:
-                samples_size = self._get_samples_count_given_medoids_idxes(self._clusters_idxes_opt[0])
-            self._ic_opt.append(self.ic_one_info(self._priors[:, 0], self._priors[:, 1], samples_size, self.model_obj.prior))
+            if self.paras_obj.modify_hierarchical:
+                candidates_for_split = set(range(self.data_obj.size*2-2))
+            else:
+                candidates_for_split = set(range(self.data_obj.size, 2*self.data_obj.size-2))
+            splitted_nodes_and_its_ancestors = [[self.data_obj.size * 2 - 2, []]]
+            samples_size = self.data_obj.size
+            if self.paras_obj.modify_hierarchical:
+                samples_size = self.model_obj.get_samples_count_given_medoids_idxes(self._clusters_idxes_opt[0])
+            self._ic_opt.append(ic_one_info(self._priors[:, 0], self._priors[:, 1], samples_size, self.model_obj.prior))
 
             count_iterations = 0
             start = time.time()
             print("\nsplitting by nodes start ... ")
-            while len(self._split_candidates)>len(self.datas.data) and (time.time() - start < self.runtime):
+            while len(candidates_for_split) > 0 and (time.time() - start < self.paras_obj.runtime):
                 count_iterations += 1
-                si, clusters_idxes, attributes, ics, statistics_for_computing_ics, split_nodes = self._choose_optimal_split_by_nodes()
+                si, clusters_idxes, attributes, ic_matrix, statistics, split_nodes = self._choose_optimal_split_by_nodes(candidates_for_split)
                 if si > self._si_opt:
-                    self._si_opt = si
-                    self._clusters_idxes_opt = copy.deepcopy(clusters_idxes)
-                    self._attributes_opt = copy.deepcopy(attributes)
-                    self._ic_opt = copy.deepcopy(ics)
-                    self._clustersRelatedInfo = copy.deepcopy(statistics_for_computing_ics)
-                    self._split_nodes_opt = copy.deepcopy(split_nodes)
-            self._update_clustering_from_idxes()
+                    self.result_obj.update(copy.deepcopy(ic_matrix), copy.deepcopy(si), copy.deepcopy(clusters_idxes),
+                                           copy.deepcopy(attributes), copy.deepcopy(statistics), copy.deepcopy(split_nodes))
             print(f"{count_iterations} iterations done.")
 
-        elif splitting_startegy == 'by_sibling':
-
-            self._split_nodes_opt.append([len(self.datas.data) * 2 - 2, []])
-
-            count_iterations = 0
-            start = time.time()
-            print("\nsplitting by sibling start ... ")
-            while time.time() - start < self.runtime:
-                new_largest_si, new_largest_clusters_idxes, new_largest_attributes, new_largest_ics, new_largest_statistics_for_computing_ics, new_largest_split_nodes = (
-                    self._choose_optimal_split_by_sibling())
-                count_iterations = count_iterations + 1
-                # print('one interation, done')
-                # if the best node in this iteration is better than current record
-                if new_largest_si > self._si_opt:
-                    self._si_opt = new_largest_si
-                    self._clusters_idxes_opt = copy.deepcopy(new_largest_clusters_idxes)
-                    self._attributes_opt = copy.deepcopy(new_largest_attributes)
-                    self._ic_opt = copy.deepcopy(new_largest_ics)
-                    self._clustersRelatedInfo = copy.deepcopy(new_largest_statistics_for_computing_ics)
-                    self._split_nodes_opt = copy.deepcopy(new_largest_split_nodes)
-            self._update_clustering_from_idxes()
-            print(f'{count_iterations} iterations, done')
-
-    def _get_ancestors(self, node_idx):
-        node_ancestors_idxes = []
-        child = node_idx
-        parent = self._parents_of_all_nodes[child]
-        while self._parents_of_all_nodes.keys().__contains__(child):
-            node_ancestors_idxes.append(self._parents_of_all_nodes[child])
-            child = parent
-            if self._parents_of_all_nodes.keys().__contains__(child):
-                parent = self._parents_of_all_nodes[child]
-            else:
-                break
-        return node_ancestors_idxes
-
-    def _choose_optimal_split_by_nodes(self):
+    def _choose_optimal_split_by_nodes(self, candidates_for_split):
 
         largest_si = -1
         largest_clusters_idxes = []
+        largest_attributes = []
         largest_ics = []
         largest_statistics_for_computing_ics = []
         largest_split_nodes = []
+        largest_nodes_idx = None
 
-        for index, (node_idx, parent) in enumerate(self._split_candidates.items()):
+        for index in candidates_for_split:
+            node_idx = self.model_obj.parents[index][0]
 
-            if node_idx < len(self.datas.data):
+            clusters_idxes = copy.deepcopy(self.result_obj.clusters_idxes_opt)
+            ic_matrix = copy.deepcopy(self.result_obj.ic_opt)
+            split_nodes = copy.deepcopy(self.result_obj._split_nodes_opt)
+            statistics_for_computing_ics = copy.deepcopy(self.result_obj.clusters_related_statistics_opt)
+
+            res = self._split_by_node(node_idx, clusters_idxes, ic_matrix, split_nodes, statistics_for_computing_ics)
+
+            if res is None:
+                candidates_for_split.remove(index)
                 continue
+            attributes, ic_attributes, dl, si = self._calc_optimal_attributes_dl(ic_matrix)
 
-            clusters_idxes = copy.deepcopy(self._clusters_idxes_opt)
-            ics = copy.deepcopy(self._ic_opt)
-            split_nodes = copy.deepcopy(self._split_nodes_opt)
-            statistics_for_computing_ics = copy.deepcopy(self._clustersRelatedInfo)
-
-            self._get_partition_given_node(node_idx, clusters_idxes, ics, split_nodes, statistics_for_computing_ics)
-            attributes, ic_attributes, dl, si_val = self.calc_optimal_attributes_dl(ics)
-
-            if __debug__:
-                if len(attributes) != len(clusters_idxes):
-                    print('error')
-                    traceback.print_exc()
-                    sys.exit()
-
-            if si_val > largest_si:
-                largest_si = si_val
+            if si > largest_si:
+                largest_si = si
                 largest_clusters_idxes = clusters_idxes
                 largest_attributes = attributes
-                largest_ics = ics
+                largest_ics = ic_matrix
                 largest_statistics_for_computing_ics = statistics_for_computing_ics
                 largest_split_nodes = split_nodes
 
                 largest_nodes_idx = node_idx
-                largest_parent = parent
-
-        ############ step 2: update self._split_candidates by removing the best node in this iteration and its ancestors ##################
-        try:
-            self._split_candidates.pop(largest_nodes_idx)
-        except Exception:
-            print('error')
-            traceback.print_exc()
-            sys.exit()
-        delete_node = self._parents_of_all_nodes[largest_nodes_idx]
-        while self._split_candidates.keys().__contains__(delete_node):
-            parent = self._parents_of_all_nodes[delete_node]
-            self._split_candidates.pop(delete_node)
-            if self._parents_of_all_nodes.keys().__contains__(parent):
-                delete_node = parent
-            else:
-                break
-
+            candidates_for_split.remove(largest_nodes_idx)
         return largest_si, largest_clusters_idxes, largest_attributes, largest_ics, largest_statistics_for_computing_ics, largest_split_nodes
 
-    def _get_partition_given_node(self, node_idx, clusters_idxes, ics, split_nodes, statistics_for_computing_ics):
+    def _split_by_node(self, node, clusters_idxes, ic_matrix, split_nodes, statistics):
 
-        node_idx_ancestors = self._get_ancestors(node_idx)
-        closest_ancestor, old_cluster_label = self._find_closest_ancestor(node_idx, node_idx_ancestors, split_nodes)
+        points_to_change = self.model_obj.nodesToPoints[node]
+        statistics.append(
+            [self.model_obj.meansForNodes[node],
+             self.model_obj.varsForNodes[node],
+             len(points_to_change)])
 
-        new_cluster_label = len(clusters_idxes)
-        to_change = self._nodesToPoints[node_idx-len(self.datas.data)]
-        split_nodes.append([node_idx, node_idx_ancestors])
+        for clus_idx, split_node in enumerate(split_nodes):
 
-        if __debug__:
-            len_remain = len(clusters_idxes[old_cluster_label]) - len(to_change)
-
-        clusters_idxes.append(to_change)
-        clusters_idxes[old_cluster_label] = self._remove_points_by_nodes(clusters_idxes[old_cluster_label], to_change)
-
-        if __debug__ and len_remain != len(clusters_idxes[old_cluster_label]):
-            print('error')
-            traceback.print_exc()
-            sys.exit()
-
-        if __debug__:
-            idx_size = 0
-            for cluster_idxes in clusters_idxes:
-                idx_size += len(cluster_idxes)
-            if idx_size != len(self.datas.data):
-                print('error')
-                traceback.print_exc()
-                sys.exit()
-
-        #################################### step1.2: compute ics of all features for each cluster #########################################
-        if self.global_var_type == 'mixed':
-            pass
-        elif self.global_var_type == 'numeric':
-
-            statistics_for_computing_ics.append([self._meansForNodes.get(node_idx-len(self.datas.data)),
-                                                 self._varsForNodes.get(node_idx-len(self.datas.data)),
-                                                 len(clusters_idxes[new_cluster_label])])
-            ics.append(self.ic_one_info(
-                statistics_for_computing_ics[new_cluster_label][0],
-                statistics_for_computing_ics[new_cluster_label][1],
-                self._get_samples_count_given_medoids_idxes(clusters_idxes[new_cluster_label]) if self.modify_hierarchical else statistics_for_computing_ics[new_cluster_label][2],
-                self.model_obj.prior
-            ))
-            statistics_for_computing_ics[old_cluster_label] = self.recur_meanVar_remove(
-                statistics_for_computing_ics[old_cluster_label][0],
-                statistics_for_computing_ics[old_cluster_label][1],
-                statistics_for_computing_ics[old_cluster_label][2],
-                statistics_for_computing_ics[new_cluster_label][0],
-                statistics_for_computing_ics[new_cluster_label][1],
-                statistics_for_computing_ics[new_cluster_label][2],
-            )
-            if type(statistics_for_computing_ics[old_cluster_label]) is type(None):
-                del statistics_for_computing_ics[old_cluster_label]
-                del split_nodes[old_cluster_label]
-                del clusters_idxes[old_cluster_label]
-                del ics[old_cluster_label]
-            else:
-                ics[old_cluster_label] = self.ic_one_info(
-                    statistics_for_computing_ics[old_cluster_label][0],
-                    statistics_for_computing_ics[old_cluster_label][1],
-                    self.model_obj.get_samples_count_given_medoids_idxes(clusters_idxes[old_cluster_label]) if self.paras_obj.modify_hierarchical else statistics_for_computing_ics[old_cluster_label][2],
-                    self.model_obj.prior
-                )
-        elif self.global_var_type == 'categorical':
-            pass
-
-    def _choose_optimal_split_by_sibling(self):
-
-        # todo, check this function and make it run
-        last_cluster_label = len(self._split_nodes_opt)-1
-        new_left_cluster_label = last_cluster_label + 1
-        new_right_cluster_label = last_cluster_label + 2
-
-        # for each node in nodes, split its two children as two clusters
-        largest_si = 0
-        for sibling in self.model.children_:
-
-            split_nodes = copy.deepcopy(self._split_nodes_opt)
-            statistics_for_computing_ics_sibling = copy.deepcopy(self._clustersRelatedInfo)
-
-            left_node_ancestors_indexes = self._get_ancestors(sibling[0])
-            right_node_ancestors_indexes = self._get_ancestors(sibling[1])
-
-            skipper_outer_loop = False
-            for previous_split_node in self._split_nodes_opt:
-                if sibling[0] == previous_split_node[0] or sibling[1] == previous_split_node[0]:
-                    skipper_outer_loop = True
-                    continue
-            if skipper_outer_loop:
-                continue
-
-            res = self._get_partition_given_sibling(
-                sibling, split_nodes, statistics_for_computing_ics_sibling,
-                new_left_cluster_label, new_right_cluster_label, left_node_ancestors_indexes, right_node_ancestors_indexes)
-
-            if res is not None:
-
-                clusters_idxes_sibling, statistics_for_computing_ics_sibling, ics_sibling, split_nodes_sibling = res[0], res[1], res[2], res[3]
-                attributes, ic_attributes, dl, si_val = self.calc_optimal_attributes_dl(ics_sibling)
-
-                if __debug__:
-                    if len(attributes) != len(clusters_idxes_sibling):
-                        print('error')
-                        traceback.print_stack()
-                        sys.exit()
-
-                if si_val > largest_si:
-                    largest_si = si_val
-                    largest_clusters_idxes = clusters_idxes_sibling
-                    largest_attributes = attributes
-                    largest_ics = ics_sibling
-                    largest_statistics_for_computing_ics = statistics_for_computing_ics_sibling
-                    largest_split_nodes = split_nodes_sibling
-
-        return largest_si, largest_clusters_idxes, largest_attributes, largest_ics, largest_statistics_for_computing_ics, largest_split_nodes
-
-    def _get_partition_given_sibling(self, sibling, split_nodes, statistics_for_computing_ics_sibling,
-                                     new_left_cluster_label, new_right_cluster_label, left_node_ancestors_indexes, right_node_ancestors_indexes):
-
-        left_node_index = sibling[0]
-        if left_node_index <= len(self.datas.data)-1:
-            # left_points_to_change = [left_node_index]
-            return None
-
-        previous_split_nodes = copy.deepcopy(split_nodes)
-        clusters_idxes = copy.deepcopy(self._clusters_idxes_opt)
-        ics_sibling = []
-
-        left_points_to_change = self._nodesToPoints[left_node_index-len(self.datas.data)]
-        split_nodes.append([left_node_index, left_node_ancestors_indexes])
-        statistics_for_computing_ics_sibling.append(
-            [self._meansForNodes.get(left_node_index-len(self.datas.data)),
-             self._varsForNodes.get(left_node_index-len(self.datas.data)),
-             len(left_points_to_change)])
-
-        right_node_index = sibling[1]
-        if right_node_index <= len(self.datas.data)-1:
-            return None
-
-        right_points_to_change = self._nodesToPoints[right_node_index-len(self.datas.data)]
-        split_nodes.append([right_node_index, right_node_ancestors_indexes])
-        statistics_for_computing_ics_sibling.append(
-            [self._meansForNodes.get(right_node_index-len(self.datas.data)), self._varsForNodes.get(right_node_index-len(self.datas.data)),
-             len(right_points_to_change)])
-
-        # update new nodes
-        for index, split_node in enumerate(previous_split_nodes):
-
-            previous_cluster_label = index
-            previous_node_index = split_node[0]
             previous_node_ancestors_indexes = split_node[1]
 
-            if left_node_index in previous_node_ancestors_indexes:
-                left_points_to_change = self._remove_points_by_nodes(left_points_to_change,
-                                                                    clusters_idxes[previous_cluster_label])
-                statistics_for_computing_ics_sibling[new_left_cluster_label] = self.recur_meanVar_remove(
-                    statistics_for_computing_ics_sibling[new_left_cluster_label][0],
-                    statistics_for_computing_ics_sibling[new_left_cluster_label][1],
-                    statistics_for_computing_ics_sibling[new_left_cluster_label][2],
-                    statistics_for_computing_ics_sibling[previous_cluster_label][0],
-                    statistics_for_computing_ics_sibling[previous_cluster_label][1],
-                    statistics_for_computing_ics_sibling[previous_cluster_label][2])
+            if node in previous_node_ancestors_indexes:
 
-            if right_node_index in previous_node_ancestors_indexes:
-                right_points_to_change = self._remove_points_by_nodes(right_points_to_change,
-                                                                     clusters_idxes[previous_cluster_label])
-                statistics_for_computing_ics_sibling[new_right_cluster_label] = self.recur_meanVar_remove(
-                    statistics_for_computing_ics_sibling[new_right_cluster_label][0],
-                    statistics_for_computing_ics_sibling[new_right_cluster_label][1],
-                    statistics_for_computing_ics_sibling[new_right_cluster_label][2],
-                    statistics_for_computing_ics_sibling[previous_cluster_label][0],
-                    statistics_for_computing_ics_sibling[previous_cluster_label][1],
-                    statistics_for_computing_ics_sibling[previous_cluster_label][2])
-
-        # check new nodes' validity
-        if type(statistics_for_computing_ics_sibling[new_left_cluster_label]) is type(None):
-            del statistics_for_computing_ics_sibling[new_left_cluster_label]
-            del split_nodes[new_left_cluster_label]
-            del new_left_cluster_label
-            new_right_cluster_label = new_right_cluster_label - 1
-        else:
-            clusters_idxes.append(left_points_to_change)
-        if type(statistics_for_computing_ics_sibling[new_right_cluster_label]) is type(None):
-            del statistics_for_computing_ics_sibling[new_right_cluster_label]
-            del split_nodes[new_right_cluster_label]
-            del new_right_cluster_label
-        else:
-            clusters_idxes.append(right_points_to_change)
-
-        # update previous split nodes
-        closest_ancestor, previous_cluster_label = self._find_closest_ancestor(left_node_index, left_node_ancestors_indexes, previous_split_nodes)
-
-        if closest_ancestor is not None:
-            try:
-                statistics_for_computing_ics_sibling[previous_cluster_label] = self.recur_meanVar_remove(
-                    statistics_for_computing_ics_sibling[previous_cluster_label][0],
-                    statistics_for_computing_ics_sibling[previous_cluster_label][1],
-                    statistics_for_computing_ics_sibling[previous_cluster_label][2],
-                    statistics_for_computing_ics_sibling[new_left_cluster_label][0],
-                    statistics_for_computing_ics_sibling[new_left_cluster_label][1],
-                    statistics_for_computing_ics_sibling[new_left_cluster_label][2]
+                points_to_change = [point for point in points_to_change if point not in clusters_idxes[clus_idx]]
+                if len(points_to_change) == 0:
+                    return None
+                elif len(points_to_change) < 0 :
+                    print('error')
+                statistics[-1] = recur_meanVar_remove(
+                    statistics[-1][0], statistics[-1][1],statistics[-1][2],
+                    statistics[clus_idx][0], statistics[clus_idx][1], statistics[clus_idx][2]
                 )
-                previous_cluster_idxes = self._remove_points_by_nodes(clusters_idxes[previous_cluster_label],
-                                                                      clusters_idxes[new_left_cluster_label])
-                if len(previous_cluster_idxes) > 0:
-                    clusters_idxes[previous_cluster_label] = previous_cluster_idxes
-                elif len(previous_cluster_idxes) == 0:
-                    del clusters_idxes[previous_cluster_label]
-                else:
-                    print('error, count of cluster idxes could not be negative')
-            except UnboundLocalError as e:
-                pass
-            if statistics_for_computing_ics_sibling[previous_cluster_label] is None:
-                del statistics_for_computing_ics_sibling[previous_cluster_label]
-                del split_nodes[previous_cluster_label]
-                try:
-                    new_left_cluster_label = new_left_cluster_label - 1
-                    new_right_cluster_label = new_right_cluster_label - 1
-                except UnboundLocalError as e:
-                    pass
-        closest_ancestor, previous_cluster_label = self._find_closest_ancestor(right_node_index, right_node_ancestors_indexes, previous_split_nodes)
+            clusters_idxes.append(points_to_change)
+
+        node_ancestors_idxes = self.model_obj.get_ancestors(node)
+        closest_ancestor, previous_cluster_label = self.model_obj.find_closest_ancestor(node_ancestors_idxes, split_nodes)
         if closest_ancestor is not None:
-            try:
-                statistics_for_computing_ics_sibling[previous_cluster_label] = self.recur_meanVar_remove(
-                    statistics_for_computing_ics_sibling[previous_cluster_label][0],
-                    statistics_for_computing_ics_sibling[previous_cluster_label][1],
-                    statistics_for_computing_ics_sibling[previous_cluster_label][2],
-                    statistics_for_computing_ics_sibling[new_right_cluster_label][0],
-                    statistics_for_computing_ics_sibling[new_right_cluster_label][1],
-                    statistics_for_computing_ics_sibling[new_right_cluster_label][2]
-                )
-                previous_cluster_idxes = self._remove_points_by_nodes(clusters_idxes[previous_cluster_label],
-                                                                      clusters_idxes[new_right_cluster_label])
 
-                if len(previous_cluster_idxes) > 0:
-                    clusters_idxes[previous_cluster_label] = previous_cluster_idxes
-                elif len(previous_cluster_idxes) == 0:
-                    del clusters_idxes[previous_cluster_label]
-                else:
-                    print('error, count of cluster idxes could not be negative')
-            except UnboundLocalError as e:
-                pass
+            previous_cluster_idxes = [point for point in clusters_idxes[previous_cluster_label] if point not in clusters_idxes[-1]]
+            clusters_idxes[previous_cluster_label] = previous_cluster_idxes
+            if len(previous_cluster_idxes) == 0:
+                return None
+            elif len(previous_cluster_idxes) < 0:
+                print('error')
+            statistics[previous_cluster_label] = recur_meanVar_remove(
+                statistics[previous_cluster_label][0],
+                statistics[previous_cluster_label][1],
+                statistics[previous_cluster_label][2],
+                statistics[-1][0],
+                statistics[-1][1],
+                statistics[-1][2]
+            )
 
-            if statistics_for_computing_ics_sibling[previous_cluster_label] is None:
-                del statistics_for_computing_ics_sibling[previous_cluster_label]
-                del split_nodes[previous_cluster_label]
-                try:
-                    new_left_cluster_label = new_left_cluster_label - 1
-                    new_right_cluster_label = new_right_cluster_label - 1
-                except UnboundLocalError as e:
-                    pass
+        for clus_idx in [previous_cluster_label, -1]:
+            samples_count = statistics[clus_idx][2]
+            if self.paras_obj.modify_hierarchical:
+                medoids_idxes = clusters_idxes[clus_idx]
+                samples_count = self.model_obj.get_samples_count_given_medoids_idxes(medoids_idxes)
+            ic_matrix[clus_idx] = ic_one_info(statistics[clus_idx][0], statistics[clus_idx][1],
+                                                              samples_count, self.model_obj.prior)
 
-        if self.global_var_type == 'mixed':
-            pass
-        elif self.global_var_type == 'numeric':
-            for index, statictics in enumerate(statistics_for_computing_ics_sibling):
-                samples_count = statictics[2]
-                cluster_label = index
-                if self.modify_hierarchical:
-                    medoids_idxes = clusters_idxes[cluster_label]
-                    samples_count = self._get_samples_count_given_medoids_idxes(medoids_idxes)
-                ics_sibling.append(self.ic_one_info(statictics[0], statictics[1], samples_count, self.model_obj.prior))
-        elif self.global_var_type == 'categorical':
-            pass
-
-        return (clusters_idxes, statistics_for_computing_ics_sibling, ics_sibling, split_nodes)
-
-    def _find_closest_ancestor(self, node_idx, node_ancestor_idxes, candidate_ancestors_with_labels):
-
-        closest_ancestor = None
-        closest_ancestor_cluster_label = None
-        for index, ancestor_info in enumerate(candidate_ancestors_with_labels):
-            ancestor_cluster_label = index
-            ancestor_node_idx = ancestor_info[0]
-            ancestor_ancestors = ancestor_info[1]
-            if ancestor_node_idx in node_ancestor_idxes:
-                if closest_ancestor is None:
-                    closest_ancestor = ancestor_node_idx
-                    closest_ancestor_cluster_label = ancestor_cluster_label
-                elif closest_ancestor in ancestor_ancestors:
-                    closest_ancestor = ancestor_node_idx
-                    closest_ancestor_cluster_label = ancestor_cluster_label
-
-        return closest_ancestor, closest_ancestor_cluster_label
-
-    def _remove_points_by_nodes(self, points_waiting_to_change, changing_points):
-        res = [point for point in points_waiting_to_change if point not in changing_points]
-        if len(res) != (len(points_waiting_to_change) - len(changing_points)):
-            print('error, set of points changed is incorrect')
-            traceback.print_exc()
-            sys.exit()
-        return res
-
-    def _node_indices_split(self, clusters_idxes, node_idx, pre_index=None, max_label=0):
-        '''
-        change indices after splitting one node out into a new cluster
-        '''
-        # get pre index of clustering
-        n_samples = len(self.model.labels_)
-        indices = copy.deepcopy(pre_index)
-        if pre_index is None:
-            indices = np.zeros(n_samples, dtype=int)
-        # get index that are going to change
-        new_cluster = max_label + 1
-        to_change = self._nodesToPoints[node_idx]
-        old_cluster = indices[to_change[0]]
-        # change indices
-        indices[to_change] = new_cluster
-        not_change = np.where(indices == old_cluster)
-
-        clusters_idxes.append(list(to_change))
-        clusters_idxes[old_cluster] = list(not_change[0])
-
-        return indices, new_cluster, old_cluster, to_change, not_change
+        split_nodes.append([node, node_ancestors_idxes])
+        return [clusters_idxes, ic_matrix, split_nodes, statistics]
 
     # get the best attribute for each cluster
     def _init_optimal_attributes_dl(self, ics):
-    # todo: not revised yet
         sortedic = np.dstack(np.unravel_index(np.argsort(-ics.ravel()), ics.shape))[0]
         find_index = sortedic[:, 0]
         attributes_total = []
         ic_attributes = 0
         dl = 0
         for i in range(len(ics)):
-            index = np.where(find_index == i)[0][0:self.min_att]
+            index = np.where(find_index == i)[0][0:self.paras_obj.min_att]
             attributes = [sortedic[ind][1] for ind in index]
             attributes_total.append(attributes)
             ic_attributes += sum(ics[i, attributes])
             dl = dl + sum((self._dls.iloc[attribute]) for attribute in attributes)
             sortedic = np.delete(sortedic, index, axis=0)
             find_index = np.delete(find_index, index, axis=0)
-        best_comb_val = ic_attributes / (self.alpha + dl ** self.beta)
+        best_comb_val = ic_attributes / (self.paras_obj.alpha + dl ** self.paras_obj.beta)
 
         return attributes_total, ic_attributes, dl, best_comb_val, sortedic
 
-    def calc_optimal_attributes_dl(self, ics):
+    def _calc_optimal_attributes_dl(self, ics):
         '''
         return attributes set for each cluster
         '''
@@ -802,214 +537,40 @@ class InfoClus:
             extend_cluster_try = sortedic[0][0]
             extend_attr_try = sortedic[0][1]
             sortedic = np.delete(sortedic, 0, axis=0)
-            if len(attributes_total[extend_cluster_try]) >= self.max_att:
+            if len(attributes_total[extend_cluster_try]) >= self.paras_obj.max_att:
                 continue
             dl_try = dl + self._dls.iloc[extend_attr_try]
             ic_attributes_try = ic_attributes + ics[extend_cluster_try, extend_attr_try]
-            si_try = ic_attributes_try / (self.alpha + (dl_try) ** self.beta)
+            si_try = ic_attributes_try / (self.paras_obj.alpha + (dl_try) ** self.paras_obj.beta)
             if si_try >= best_comb_val:
                 best_comb_val = si_try
                 attributes_total[extend_cluster_try].append(extend_attr_try)
                 dl = dl_try
                 ic_attributes = ic_attributes_try
-                out_max_att_limit = all(len(attribute) >= self.max_att for attribute in attributes_total)
+                out_max_att_limit = all(len(attribute) >= self.paras_obj.max_att for attribute in attributes_total)
             else:
                 break
 
         return attributes_total, ic_attributes, dl, best_comb_val
 
     def create_cache_version(self, cache_name):
-        previously_calculated = {"embedding": self.embedding,
-                                 "clustering": self._clustering_opt,
-                                 "clusters_idxes": self._clusters_idxes_opt,
-                                 "split": self._split_nodes_opt,
-                                 "global_var_type": self.global_var_type,
-                                 "infor": self._clustersRelatedInfo,
-                                 "attributes": self._attributes_opt,
-                                 "prior": self._priors,
-                                 "si": self._si_opt,
-                                 "ic": self._ic_opt,
-                                 "dls": self._dls,
-                                 # "nodes": self._nodes_opt,
-                                 "total_dl": self._total_dl_opt,
-                                 "total_ic": self._total_ic_opt,
-                                 }
-        to_cache(os.path.join(self.cache_path, cache_name), previously_calculated)
+        self.result_obj.extend_results(self.model_obj)
+        pre_calc = {
+            'paras': self.paras_obj,
+            'results': self.result_obj
+        }
+        to_cache(os.path.join(self.data_obj.cache_path, cache_name), pre_calc)
 
     def check_cache(self):
 
         current_paras = self.paras_obj.get_paras()
         cache_name = self.data_obj.name + get_hashkey_from_dict(current_paras)
 
-        previously_calculated = from_cache(os.path.join(self.cache_path, cache_name))
-        if previously_calculated is not None:
+        pre_calc = from_cache(os.path.join(self.data_obj.cache_path, cache_name))
+        if pre_calc is not None:
             print("From cache")
-            self._clustering_opt = previously_calculated["clustering"]
-            self._clusters_idxes_opt = previously_calculated["clusters_idxes"]
-            self._split_nodes_opt = previously_calculated["split"]
-            self.global_var_type = previously_calculated["global_var_type"]
-            self._clustersRelatedInfo = previously_calculated["infor"]
-            self._attributes_opt = previously_calculated["attributes"]
-            self._priors = previously_calculated["prior"]
-            self._si_opt = previously_calculated["si"]
-            self._ic_opt = previously_calculated["ic"]
-            self._dls = previously_calculated["dls"]
-            # self._nodes_opt = previously_calculated["nodes"]
-            self._total_dl_opt = previously_calculated["total_dl"]
-            self._total_ic_opt = previously_calculated["total_ic"]
-        return cache_name, previously_calculated
-
-    def visualize_result(self, show_now_embedding = True, save_embedding = False, show_now_explanation = False, save_explanation = False):
-
-        # visualize clustering on embedding
-        if self.modify_hierarchical:
-            data = self.datas.data_raw.values
-            labels = self._clustering_opt[self.kmedoids_clustering]
-            embedding = self.all_embeddings[self.emb_name]
-        else:
-            data = self.datas.data.values
-            labels = self._clustering_opt
-            embedding = self.embedding
-        att_names = self.datas.data.columns.values
-        unique_classes = np.unique(labels)
-        num_classes = len(unique_classes)
-
-        colors = sns.color_palette("colorblind", num_classes)  # HUSL generates distinguishable colors
-        fig = plt.figure(figsize=(8, 6))
-        for i, cls in enumerate(unique_classes):
-            # Select points corresponding to the current class
-            class_points = embedding[labels == cls]
-            lable = f'Cluster {cls}'
-            plt.scatter(class_points[:, 0], class_points[:, 1],
-                        color=colors[i], label=lable, s=20)
-        plt.tight_layout()
-
-        num_att = 0
-        for cluster_idx in range(len(self._attributes_opt)):
-            num_att += len(self._attributes_opt[cluster_idx])
-        # plt.text(x=50, y=-50, s=num_att, fontsize=70, fontweight= 'bold', color='black', ha='right', va='bottom')
-        plt.legend(fontsize=16)
-        plt.axis('off')
-        if show_now_embedding:
-            plt.show()
-        if save_embedding:
-            if isinstance(self.model, AgglomerativeClustering):
-                fig_path = f"../figs/embedding_agglomerative_{self.model.linkage}_a{self.alpha}_b{self.beta}-{self.name}_Infoclus"
-                fig_path = fig_path.replace(" ", "_")
-            if isinstance(self.model, KMeans):
-                fig_path = f"../figs/embedding_kmeans_{self.model.n_clusters}_a{self.alpha}_b{self.beta}-{self.name}_Infoclus"
-                fig_path = fig_path.replace(" ", "_")
-            fig.savefig(f'{fig_path}.png')
-
-        # visualize distributions of attributes
-        for cluster_label in unique_classes:
-            instance_cluster_idx = np.where(labels == cluster_label)
-            attributes = self._attributes_opt[cluster_label]
-            cluster = data[instance_cluster_idx]
-            overlap = len(cluster) / len(data)
-            cluster_color  = colors[cluster_label]
-            for att_id in attributes:
-                data_att = data[:, att_id]
-                cluster_att = cluster[:, att_id]
-                att_name = att_names[att_id]
-                att_type = self.var_type[att_id]
-                if att_type == 'categorical':
-                    # todo: clean code here
-                    df_mapping_chain = self.datas.ls_mapping_chain_by_col[att_id]
-                    nuniques = len(df_mapping_chain)
-                    dist_of_fixed_cluster_att = self._clustersRelatedInfo[cluster_label][0].iloc[:nuniques,
-                                                att_id].values
-                    dist_of_att_in_data = self._priors.iloc[:nuniques, att_id].values
-                    fig = utils.get_barchart(df_mapping_chain,dist_of_fixed_cluster_att,dist_of_att_in_data, att_id, cluster_label,att_name, cluster_color, overlap)
-                elif att_type == 'numeric':
-                    fig = utils.get_kde(data_att, cluster_att, att_name, cluster_label, cluster_color)
-                else:
-                    print('unsupported attribute type for visualization:', att_type)
-                if show_now_explanation:
-                    fig.show()
-                if save_explanation:
-                    if isinstance(self.model, AgglomerativeClustering):
-                        fig_path = f"../figs/agglomerative_{self.model.linkage}_a{self.alpha}_b{self.beta}_C{cluster_label}_{overlap:.2}_{att_name}-{self.name}_Infoclus"
-                        fig_path = fig_path.replace(" ", "_")
-                    if isinstance(self.model, KMeans):
-                        fig_path = f"../figs/kmeans_{self.model.n_clusters}_a{self.alpha}_b{self.beta}_C{cluster_label}_{overlap:.2}_{att_name}-{self.name}_Infoclus"
-                        fig_path = fig_path.replace(" ", "_")
-                    fig.savefig(f'{fig_path}.png')
-
-    def _update_clustering_from_idxes(self):
-        if sum(len(cluster_idxes) for cluster_idxes in self._clusters_idxes_opt) == len(self.datas.data):
-            pass
-        else:
-            print('Error, not matching all points.')
-        cluster_labels = np.empty(len(self.datas.data), dtype=int)
-        # Assign each index to its cluster label
-        for cluster_id, cluster_idxes in enumerate(self._clusters_idxes_opt):
-            cluster_labels[cluster_idxes] = cluster_id
-        self._clustering_opt = cluster_labels
-
-    # in principle, the code is done, but I need to run to check is everything ok
-    def _run_infoclus_kmeans(self):
-        #################################### step1: initialization result-related variables #########################################
-        # todo: most of here are not necessary for kmeans, but now is needed to guarantee the run of code
-        self._clustering_opt = None  # final clustering labels for each point
-        self._si_opt = 0  # value of si for this clustering
-        self._clustersRelatedInfo = {}  # means, vars, and counts for each cluster
-        self._attributes_opt = None  # chosen attributes for each cluster
-        self._ic_opt = None  # ic of all attributes for each cluster
-        self._total_ic_opt = 0
-        self._total_dl_opt = 0  # value for summing up length of attributes
-        self._nodes_opt = None  # the left nodes that could be used for further splitting
-        self._split_nodes_opt = []  # splitted nodes and their classification label, tuple inside
-        self._split_nodes_opt.append(("others", 0))
-        clustering_new_info = {}
-
-        print("considering kmeans", end='')
-        for i in range(KMEANS_COUNT):
-            k = self.model.n_clusters + i
-            clustering_info_k = {}
-            model = KMeans(n_clusters=k, random_state=self.model.random_state)
-            model.fit(self.embedding)
-            clustering_new = model.labels_
-            index_dict = defaultdict(list)
-            for idx, label in enumerate(clustering_new):
-                index_dict[label].append(idx)
-            ics=[]
-            for cluster_label in range(k):
-                index_cluster = index_dict[cluster_label]
-                cluster = self.datas.data.values[index_cluster]
-                if self.global_var_type == 'mixed':
-                    pass
-                elif self.global_var_type == 'numeric':
-                    mean_cluster = np.mean(cluster, axis=0)
-                    var_cluster = np.var(cluster, axis=0)
-                    count_cluster = len(cluster)
-                    ic_cluster = self.ic_one_info(mean_cluster,var_cluster,count_cluster,self.model_obj.prior)
-                    ics.append(ic_cluster)
-                elif self.global_var_type == 'categorical':
-                    count_of_uniques_per_attribute = [len(df) for df in self.datas.ls_mapping_chain_by_col]
-                    np_data = np.zeros((max(count_of_uniques_per_attribute), len(self.datas.data_raw.columns)))
-                    mask = np.arange(np_data.shape[0])[:, None] >= np.array(count_of_uniques_per_attribute)
-                    np_data[mask] = self.epsilon
-                    cluster_distribution = pd.DataFrame(np_data, columns=self.data_raw.columns)
-                    cluster_size = len(cluster)
-                    for att_label in range(len(cluster_distribution.columns)):
-                        for col_loc in range(len(self.datas.ls_mapping_chain_by_col[att_label])):
-                            value = self.datas.ls_mapping_chain_by_col[att_label]['scaled'][col_loc]
-                            value_count = np.sum(cluster[:, att_label] == value)
-                            value_proportion = value_count / cluster_size
-                            cluster_distribution.iloc[col_loc, att_label] = value_proportion
-                    ic_cluster = self.ic_categorical(cluster_distribution, cluster_size)
-                    clustering_info_k[cluster_label] = [cluster_distribution, cluster_size]
-                    ics.append(ic_cluster)
-            attributes, ic_attributes, dl, si_val = self.calc_optimal_attributes_dl(ics)
-            if si_val > self._si_opt:
-                self._clustering_opt = clustering_new
-                self._attributes_opt = attributes
-                self._si_opt = si_val
-                self._ic_opt = ic_attributes
-                if self.global_var_type == 'categorical':
-                    self._clustersRelatedInfo = clustering_info_k
-        print(f"\n done K: {k}")
+            self.result_obj = pre_calc['results']
+        return cache_name, pre_calc
 
 
     #
@@ -1204,3 +765,304 @@ class InfoClus:
     # def ic_categorical(self, distribution_cluster: pd.DataFrame, size_cluster: int) -> np.ndarray:
     #     ic = size_cluster * self.kl_categorical(distribution_cluster.values)
     #     return ic
+
+    # def _update_clustering_from_idxes(self):
+    #     if sum(len(cluster_idxes) for cluster_idxes in self._clusters_idxes_opt) == len(self.datas.data):
+    #         pass
+    #     else:
+    #         print('Error, not matching all points.')
+    #     cluster_labels = np.empty(len(self.datas.data), dtype=int)
+    #     # Assign each index to its cluster label
+    #     for cluster_id, cluster_idxes in enumerate(self._clusters_idxes_opt):
+    #         cluster_labels[cluster_idxes] = cluster_id
+    #     self._clustering_opt = cluster_labels
+
+    #
+    # # in principle, the code is done, but I need to run to check is everything ok
+    # def _run_infoclus_kmeans(self):
+    #     #################################### step1: initialization result-related variables #########################################
+    #     # todo: most of here are not necessary for kmeans, but now is needed to guarantee the run of code
+    #     self._clustering_opt = None  # final clustering labels for each point
+    #     self._si_opt = 0  # value of si for this clustering
+    #     self._clustersRelatedInfo = {}  # means, vars, and counts for each cluster
+    #     self._attributes_opt = None  # chosen attributes for each cluster
+    #     self._ic_opt = None  # ic of all attributes for each cluster
+    #     self._total_ic_opt = 0
+    #     self._total_dl_opt = 0  # value for summing up length of attributes
+    #     self._nodes_opt = None  # the left nodes that could be used for further splitting
+    #     self._split_nodes_opt = []  # splitted nodes and their classification label, tuple inside
+    #     self._split_nodes_opt.append(("others", 0))
+    #     clustering_new_info = {}
+    #
+    #     print("considering kmeans", end='')
+    #     for i in range(KMEANS_COUNT):
+    #         k = self.model.n_clusters + i
+    #         clustering_info_k = {}
+    #         model = KMeans(n_clusters=k, random_state=self.model.random_state)
+    #         model.fit(self.embedding)
+    #         clustering_new = model.labels_
+    #         index_dict = defaultdict(list)
+    #         for idx, label in enumerate(clustering_new):
+    #             index_dict[label].append(idx)
+    #         ics=[]
+    #         for cluster_label in range(k):
+    #             index_cluster = index_dict[cluster_label]
+    #             cluster = self.datas.data.values[index_cluster]
+    #             if self.global_var_type == 'mixed':
+    #                 pass
+    #             elif self.global_var_type == 'numeric':
+    #                 mean_cluster = np.mean(cluster, axis=0)
+    #                 var_cluster = np.var(cluster, axis=0)
+    #                 count_cluster = len(cluster)
+    #                 ic_cluster = self.ic_one_info(mean_cluster,var_cluster,count_cluster,self.model_obj.prior)
+    #                 ics.append(ic_cluster)
+    #             elif self.global_var_type == 'categorical':
+    #                 count_of_uniques_per_attribute = [len(df) for df in self.datas.ls_mapping_chain_by_col]
+    #                 np_data = np.zeros((max(count_of_uniques_per_attribute), len(self.datas.data_raw.columns)))
+    #                 mask = np.arange(np_data.shape[0])[:, None] >= np.array(count_of_uniques_per_attribute)
+    #                 np_data[mask] = self.epsilon
+    #                 cluster_distribution = pd.DataFrame(np_data, columns=self.data_raw.columns)
+    #                 cluster_size = len(cluster)
+    #                 for att_label in range(len(cluster_distribution.columns)):
+    #                     for col_loc in range(len(self.datas.ls_mapping_chain_by_col[att_label])):
+    #                         value = self.datas.ls_mapping_chain_by_col[att_label]['scaled'][col_loc]
+    #                         value_count = np.sum(cluster[:, att_label] == value)
+    #                         value_proportion = value_count / cluster_size
+    #                         cluster_distribution.iloc[col_loc, att_label] = value_proportion
+    #                 ic_cluster = self.ic_categorical(cluster_distribution, cluster_size)
+    #                 clustering_info_k[cluster_label] = [cluster_distribution, cluster_size]
+    #                 ics.append(ic_cluster)
+    #         attributes, ic_attributes, dl, si_val = self.calc_optimal_attributes_dl(ics)
+    #         if si_val > self._si_opt:
+    #             self._clustering_opt = clustering_new
+    #             self._attributes_opt = attributes
+    #             self._si_opt = si_val
+    #             self._ic_opt = ic_attributes
+    #             if self.global_var_type == 'categorical':
+    #                 self._clustersRelatedInfo = clustering_info_k
+    #     print(f"\n done K: {k}")
+    #
+    #
+    # def _node_indices_split(self, clusters_idxes, node_idx, pre_index=None, max_label=0):
+    #     '''
+    #     change indices after splitting one node out into a new cluster
+    #     '''
+    #     # get pre index of clustering
+    #     n_samples = len(self.model.labels_)
+    #     indices = copy.deepcopy(pre_index)
+    #     if pre_index is None:
+    #         indices = np.zeros(n_samples, dtype=int)
+    #     # get index that are going to change
+    #     new_cluster = max_label + 1
+    #     to_change = self._nodesToPoints[node_idx]
+    #     old_cluster = indices[to_change[0]]
+    #     # change indices
+    #     indices[to_change] = new_cluster
+    #     not_change = np.where(indices == old_cluster)
+    #
+    #     clusters_idxes.append(list(to_change))
+    #     clusters_idxes[old_cluster] = list(not_change[0])
+    #
+    #     return indices, new_cluster, old_cluster, to_change, not_change
+
+    #
+    # def _choose_optimal_split_by_sibling(self):
+    #
+    #     # todo, check this function and make it run
+    #     last_cluster_label = len(self._split_nodes_opt)-1
+    #     new_left_cluster_label = last_cluster_label + 1
+    #     new_right_cluster_label = last_cluster_label + 2
+    #
+    #     # for each node in nodes, split its two children as two clusters
+    #     largest_si = 0
+    #     for sibling in self.model.children_:
+    #
+    #         split_nodes = copy.deepcopy(self._split_nodes_opt)
+    #         statistics_for_computing_ics_sibling = copy.deepcopy(self._clustersRelatedInfo)
+    #
+    #         left_node_ancestors_indexes = self._get_ancestors(sibling[0])
+    #         right_node_ancestors_indexes = self._get_ancestors(sibling[1])
+    #
+    #         skipper_outer_loop = False
+    #         for previous_split_node in self._split_nodes_opt:
+    #             if sibling[0] == previous_split_node[0] or sibling[1] == previous_split_node[0]:
+    #                 skipper_outer_loop = True
+    #                 continue
+    #         if skipper_outer_loop:
+    #             continue
+    #
+    #         res = self._get_partition_given_sibling(
+    #             sibling, split_nodes, statistics_for_computing_ics_sibling,
+    #             new_left_cluster_label, new_right_cluster_label, left_node_ancestors_indexes, right_node_ancestors_indexes)
+    #
+    #         if res is not None:
+    #
+    #             clusters_idxes_sibling, statistics_for_computing_ics_sibling, ics_sibling, split_nodes_sibling = res[0], res[1], res[2], res[3]
+    #             attributes, ic_attributes, dl, si_val = self.calc_optimal_attributes_dl(ics_sibling)
+    #
+    #             if __debug__:
+    #                 if len(attributes) != len(clusters_idxes_sibling):
+    #                     print('error')
+    #                     traceback.print_stack()
+    #                     sys.exit()
+    #
+    #             if si_val > largest_si:
+    #                 largest_si = si_val
+    #                 largest_clusters_idxes = clusters_idxes_sibling
+    #                 largest_attributes = attributes
+    #                 largest_ics = ics_sibling
+    #                 largest_statistics_for_computing_ics = statistics_for_computing_ics_sibling
+    #                 largest_split_nodes = split_nodes_sibling
+    #
+    #     return largest_si, largest_clusters_idxes, largest_attributes, largest_ics, largest_statistics_for_computing_ics, largest_split_nodes
+    #
+    # def _get_partition_given_sibling(self, sibling, split_nodes, statistics_for_computing_ics_sibling,
+    #                                  new_left_cluster_label, new_right_cluster_label, left_node_ancestors_indexes, right_node_ancestors_indexes):
+    #
+    #     left_node_index = sibling[0]
+    #     if left_node_index <= len(self.datas.data)-1:
+    #         # left_points_to_change = [left_node_index]
+    #         return None
+    #
+    #     previous_split_nodes = copy.deepcopy(split_nodes)
+    #     clusters_idxes = copy.deepcopy(self._clusters_idxes_opt)
+    #     ics_sibling = []
+    #
+    #     left_points_to_change = self._nodesToPoints[left_node_index-len(self.datas.data)]
+    #     split_nodes.append([left_node_index, left_node_ancestors_indexes])
+    #     statistics_for_computing_ics_sibling.append(
+    #         [self._meansForNodes.get(left_node_index-len(self.datas.data)),
+    #          self._varsForNodes.get(left_node_index-len(self.datas.data)),
+    #          len(left_points_to_change)])
+    #
+    #     right_node_index = sibling[1]
+    #     if right_node_index <= len(self.datas.data)-1:
+    #         return None
+    #
+    #     right_points_to_change = self._nodesToPoints[right_node_index-len(self.datas.data)]
+    #     split_nodes.append([right_node_index, right_node_ancestors_indexes])
+    #     statistics_for_computing_ics_sibling.append(
+    #         [self._meansForNodes.get(right_node_index-len(self.datas.data)), self._varsForNodes.get(right_node_index-len(self.datas.data)),
+    #          len(right_points_to_change)])
+    #
+    #     # update new nodes
+    #     for index, split_node in enumerate(previous_split_nodes):
+    #
+    #         previous_cluster_label = index
+    #         previous_node_index = split_node[0]
+    #         previous_node_ancestors_indexes = split_node[1]
+    #
+    #         if left_node_index in previous_node_ancestors_indexes:
+    #             left_points_to_change = self._remove_points_by_nodes(left_points_to_change,
+    #                                                                 clusters_idxes[previous_cluster_label])
+    #             statistics_for_computing_ics_sibling[new_left_cluster_label] = self.recur_meanVar_remove(
+    #                 statistics_for_computing_ics_sibling[new_left_cluster_label][0],
+    #                 statistics_for_computing_ics_sibling[new_left_cluster_label][1],
+    #                 statistics_for_computing_ics_sibling[new_left_cluster_label][2],
+    #                 statistics_for_computing_ics_sibling[previous_cluster_label][0],
+    #                 statistics_for_computing_ics_sibling[previous_cluster_label][1],
+    #                 statistics_for_computing_ics_sibling[previous_cluster_label][2])
+    #
+    #         if right_node_index in previous_node_ancestors_indexes:
+    #             right_points_to_change = self._remove_points_by_nodes(right_points_to_change,
+    #                                                                  clusters_idxes[previous_cluster_label])
+    #             statistics_for_computing_ics_sibling[new_right_cluster_label] = self.recur_meanVar_remove(
+    #                 statistics_for_computing_ics_sibling[new_right_cluster_label][0],
+    #                 statistics_for_computing_ics_sibling[new_right_cluster_label][1],
+    #                 statistics_for_computing_ics_sibling[new_right_cluster_label][2],
+    #                 statistics_for_computing_ics_sibling[previous_cluster_label][0],
+    #                 statistics_for_computing_ics_sibling[previous_cluster_label][1],
+    #                 statistics_for_computing_ics_sibling[previous_cluster_label][2])
+    #
+    #     # check new nodes' validity
+    #     if type(statistics_for_computing_ics_sibling[new_left_cluster_label]) is type(None):
+    #         del statistics_for_computing_ics_sibling[new_left_cluster_label]
+    #         del split_nodes[new_left_cluster_label]
+    #         del new_left_cluster_label
+    #         new_right_cluster_label = new_right_cluster_label - 1
+    #     else:
+    #         clusters_idxes.append(left_points_to_change)
+    #     if type(statistics_for_computing_ics_sibling[new_right_cluster_label]) is type(None):
+    #         del statistics_for_computing_ics_sibling[new_right_cluster_label]
+    #         del split_nodes[new_right_cluster_label]
+    #         del new_right_cluster_label
+    #     else:
+    #         clusters_idxes.append(right_points_to_change)
+    #
+    #     # update previous split nodes
+    #     closest_ancestor, previous_cluster_label = self._find_closest_ancestor(left_node_index, left_node_ancestors_indexes, previous_split_nodes)
+    #
+    #     if closest_ancestor is not None:
+    #         try:
+    #             statistics_for_computing_ics_sibling[previous_cluster_label] = self.recur_meanVar_remove(
+    #                 statistics_for_computing_ics_sibling[previous_cluster_label][0],
+    #                 statistics_for_computing_ics_sibling[previous_cluster_label][1],
+    #                 statistics_for_computing_ics_sibling[previous_cluster_label][2],
+    #                 statistics_for_computing_ics_sibling[new_left_cluster_label][0],
+    #                 statistics_for_computing_ics_sibling[new_left_cluster_label][1],
+    #                 statistics_for_computing_ics_sibling[new_left_cluster_label][2]
+    #             )
+    #             previous_cluster_idxes = self._remove_points_by_nodes(clusters_idxes[previous_cluster_label],
+    #                                                                   clusters_idxes[new_left_cluster_label])
+    #             if len(previous_cluster_idxes) > 0:
+    #                 clusters_idxes[previous_cluster_label] = previous_cluster_idxes
+    #             elif len(previous_cluster_idxes) == 0:
+    #                 del clusters_idxes[previous_cluster_label]
+    #             else:
+    #                 print('error, count of cluster idxes could not be negative')
+    #         except UnboundLocalError as e:
+    #             pass
+    #         if statistics_for_computing_ics_sibling[previous_cluster_label] is None:
+    #             del statistics_for_computing_ics_sibling[previous_cluster_label]
+    #             del split_nodes[previous_cluster_label]
+    #             try:
+    #                 new_left_cluster_label = new_left_cluster_label - 1
+    #                 new_right_cluster_label = new_right_cluster_label - 1
+    #             except UnboundLocalError as e:
+    #                 pass
+    #     closest_ancestor, previous_cluster_label = self._find_closest_ancestor(right_node_index, right_node_ancestors_indexes, previous_split_nodes)
+    #     if closest_ancestor is not None:
+    #         try:
+    #             statistics_for_computing_ics_sibling[previous_cluster_label] = self.recur_meanVar_remove(
+    #                 statistics_for_computing_ics_sibling[previous_cluster_label][0],
+    #                 statistics_for_computing_ics_sibling[previous_cluster_label][1],
+    #                 statistics_for_computing_ics_sibling[previous_cluster_label][2],
+    #                 statistics_for_computing_ics_sibling[new_right_cluster_label][0],
+    #                 statistics_for_computing_ics_sibling[new_right_cluster_label][1],
+    #                 statistics_for_computing_ics_sibling[new_right_cluster_label][2]
+    #             )
+    #             previous_cluster_idxes = self._remove_points_by_nodes(clusters_idxes[previous_cluster_label],
+    #                                                                   clusters_idxes[new_right_cluster_label])
+    #
+    #             if len(previous_cluster_idxes) > 0:
+    #                 clusters_idxes[previous_cluster_label] = previous_cluster_idxes
+    #             elif len(previous_cluster_idxes) == 0:
+    #                 del clusters_idxes[previous_cluster_label]
+    #             else:
+    #                 print('error, count of cluster idxes could not be negative')
+    #         except UnboundLocalError as e:
+    #             pass
+    #
+    #         if statistics_for_computing_ics_sibling[previous_cluster_label] is None:
+    #             del statistics_for_computing_ics_sibling[previous_cluster_label]
+    #             del split_nodes[previous_cluster_label]
+    #             try:
+    #                 new_left_cluster_label = new_left_cluster_label - 1
+    #                 new_right_cluster_label = new_right_cluster_label - 1
+    #             except UnboundLocalError as e:
+    #                 pass
+    #
+    #     if self.global_var_type == 'mixed':
+    #         pass
+    #     elif self.global_var_type == 'numeric':
+    #         for index, statictics in enumerate(statistics_for_computing_ics_sibling):
+    #             samples_count = statictics[2]
+    #             cluster_label = index
+    #             if self.modify_hierarchical:
+    #                 medoids_idxes = clusters_idxes[cluster_label]
+    #                 samples_count = self._get_samples_count_given_medoids_idxes(medoids_idxes)
+    #             ics_sibling.append(ic_one_info(statictics[0], statictics[1], samples_count, self.model_obj.prior))
+    #     elif self.global_var_type == 'categorical':
+    #         pass
+    #
+    #     return (clusters_idxes, statistics_for_computing_ics_sibling, ics_sibling, split_nodes)

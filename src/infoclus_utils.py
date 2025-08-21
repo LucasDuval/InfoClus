@@ -274,3 +274,82 @@ def ic_one_info(means_cluster, vars_cluster, n_samples, prior):
     ic2 = n_samples * kl_gaussian(means_cluster, vars_cluster, prior[0], prior[1])
     cluster_ic.extend(ic2)
     return cluster_ic
+
+#
+# def visualize_result(self, show_now_embedding = True, save_embedding = False, show_now_explanation = False, save_explanation = False):
+#
+#     # visualize clustering on embedding
+#     if self.modify_hierarchical:
+#         data = self.datas.data_raw.values
+#         labels = self._clustering_opt[self.kmedoids_clustering]
+#         embedding = self.all_embeddings[self.emb_name]
+#     else:
+#         data = self.datas.data.values
+#         labels = self._clustering_opt
+#         embedding = self.embedding
+#     att_names = self.datas.data.columns.values
+#     unique_classes = np.unique(labels)
+#     num_classes = len(unique_classes)
+#
+#     colors = sns.color_palette("colorblind", num_classes)  # HUSL generates distinguishable colors
+#     fig = plt.figure(figsize=(8, 6))
+#     for i, cls in enumerate(unique_classes):
+#         # Select points corresponding to the current class
+#         class_points = embedding[labels == cls]
+#         lable = f'Cluster {cls}'
+#         plt.scatter(class_points[:, 0], class_points[:, 1],
+#                     color=colors[i], label=lable, s=20)
+#     plt.tight_layout()
+#
+#     num_att = 0
+#     for cluster_idx in range(len(self._attributes_opt)):
+#         num_att += len(self._attributes_opt[cluster_idx])
+#     # plt.text(x=50, y=-50, s=num_att, fontsize=70, fontweight= 'bold', color='black', ha='right', va='bottom')
+#     plt.legend(fontsize=16)
+#     plt.axis('off')
+#     if show_now_embedding:
+#         plt.show()
+#     if save_embedding:
+#         if isinstance(self.model, AgglomerativeClustering):
+#             fig_path = f"../figs/embedding_agglomerative_{self.model.linkage}_a{self.alpha}_b{self.beta}-{self.name}_Infoclus"
+#             fig_path = fig_path.replace(" ", "_")
+#         if isinstance(self.model, KMeans):
+#             fig_path = f"../figs/embedding_kmeans_{self.model.n_clusters}_a{self.alpha}_b{self.beta}-{self.name}_Infoclus"
+#             fig_path = fig_path.replace(" ", "_")
+#         fig.savefig(f'{fig_path}.png')
+#
+#     # visualize distributions of attributes
+#     for cluster_label in unique_classes:
+#         instance_cluster_idx = np.where(labels == cluster_label)
+#         attributes = self._attributes_opt[cluster_label]
+#         cluster = data[instance_cluster_idx]
+#         overlap = len(cluster) / len(data)
+#         cluster_color  = colors[cluster_label]
+#         for att_id in attributes:
+#             data_att = data[:, att_id]
+#             cluster_att = cluster[:, att_id]
+#             att_name = att_names[att_id]
+#             att_type = self.var_type[att_id]
+#             if att_type == 'categorical':
+#                 # todo: clean code here
+#                 df_mapping_chain = self.datas.ls_mapping_chain_by_col[att_id]
+#                 nuniques = len(df_mapping_chain)
+#                 dist_of_fixed_cluster_att = self._clustersRelatedInfo[cluster_label][0].iloc[:nuniques,
+#                                             att_id].values
+#                 dist_of_att_in_data = self._priors.iloc[:nuniques, att_id].values
+#                 fig = utils.get_barchart(df_mapping_chain,dist_of_fixed_cluster_att,dist_of_att_in_data, att_id, cluster_label,att_name, cluster_color, overlap)
+#             elif att_type == 'numeric':
+#                 fig = utils.get_kde(data_att, cluster_att, att_name, cluster_label, cluster_color)
+#             else:
+#                 print('unsupported attribute type for visualization:', att_type)
+#             if show_now_explanation:
+#                 fig.show()
+#             if save_explanation:
+#                 if isinstance(self.model, AgglomerativeClustering):
+#                     fig_path = f"../figs/agglomerative_{self.model.linkage}_a{self.alpha}_b{self.beta}_C{cluster_label}_{overlap:.2}_{att_name}-{self.name}_Infoclus"
+#                     fig_path = fig_path.replace(" ", "_")
+#                 if isinstance(self.model, KMeans):
+#                     fig_path = f"../figs/kmeans_{self.model.n_clusters}_a{self.alpha}_b{self.beta}_C{cluster_label}_{overlap:.2}_{att_name}-{self.name}_Infoclus"
+#                     fig_path = fig_path.replace(" ", "_")
+#                 fig.savefig(f'{fig_path}.png')
+#
