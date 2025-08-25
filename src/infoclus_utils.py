@@ -64,7 +64,7 @@ def kl_bernoulli(p_value, q_value, epsilon=0.00001):
 
     return a + b
 
-def get_scaled_data(data: pd.DataFrame, replace_nan: float) -> pd.DataFrame:
+def get_scaled_data(data: pd.DataFrame, replace_nan: float):
     """
     Preprocesses the input DataFrame:
     - Standardizes numeric columns using StandardScaler.
