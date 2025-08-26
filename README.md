@@ -66,4 +66,9 @@ data folder:
     - dataset_name_modify_false # initialized InfoClus object with modified hierarchy
     - others # InfoClus object running under different parameters
 
+Analyze your dataset by InfoClus, assuming your data has name 'toy':
+- process data
+  - generate a folder with your dataset name 'toy' under \data folder, 
+  - generate a folder named 'cache'
+  - put your data, toy.csv, into 'toy' folder
 

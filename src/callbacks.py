@@ -2,9 +2,9 @@ import dash
 from dash.dependencies import Input, Output, State
 
 from layout import *
-from dash_utils import build_infoclus, serialize_infoclus, deserialize_infoclus
+from dash_utils import build_infoclus, serialize_obj, deserialize_obj
+from src.unused.infoclus2 import SPLITTING_STRATEGY
 from config import PROJECT_ROOT
-from infoclus2 import SPLITTING_STRATEGY
 
 def register_callbacks(app):
 
@@ -24,10 +24,12 @@ def register_callbacks(app):
         if not ctx.triggered:
             raise dash.exceptions.PreventUpdate
 
+        info_cache = None
         trigger_id = ctx.triggered[0]['prop_id'].split('.')[0]
         if trigger_id == 'dataset-select':
             infoclus_obj = build_infoclus(dataset)
-            infoclus_obj.optimise()
+            info_cache = infoclus_obj.optimise()
+
         elif trigger_id == 'recalc-hyperparameters':
             infoclus_obj = build_infoclus(dataset)
             paras = {
@@ -42,11 +44,11 @@ def register_callbacks(app):
             'modify_hierarchical': False,
             'base_clusters': 1000 # no need to assign a value while 'modify_hierarchical' is False
 }
-            infoclus_obj.optimise(paras)
+            info_cache = infoclus_obj.optimise(paras)
         else:
             print('unknown trigger id')
 
-        return serialize_infoclus(infoclus_obj)
+        return info_cache
 
     @app.callback(
         Output('dashboard-content', 'children'),
