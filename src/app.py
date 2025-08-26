@@ -14,7 +14,7 @@ from config import PROJECT_ROOT
 from src.dash_utils import serialize_obj
 
 data_name = 'german_socio_eco'
-df_data = pd.read_csv(PROJECT_ROOT / 'data' / data_name / f'{data_name}.csv')
+df_data = pd.read_csv(os.path.join(PROJECT_ROOT, 'data', data_name, f'{data_name}.csv'))
 embeddings_load = np.load(os.path.join(PROJECT_ROOT,'data', data_name, 'cache', 'embeddings.npz'))
 embeddings = {k: embeddings_load[k] for k in embeddings_load.files}
 

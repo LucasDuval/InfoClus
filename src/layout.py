@@ -6,14 +6,6 @@ import yaml
 from sklearn.neighbors import KernelDensity
 from dash import dcc, html
 import dash_bootstrap_components as dbc
-import os, time
-
-from infoclus import InfoClus
-from config import DATA_FOLDER
-from infoclus_utils import get_embeddings
-
-# sys.path.append(PROJECT_ROOT)
-# sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 RUNTIME_MARKERS = ["0.01s", "0.5s", "1s", "5s", "10s", "30s", "1m","3m", "5m", "10m", "30m", "1h"]
 
@@ -64,66 +56,9 @@ def get_kde(data_att: np.ndarray, cluster_att: np.ndarray, att_name: str):
 
     return fig
 
-def get_barchart(infoclus: InfoClus, att_id: int, cluster_id: int, att_name: str):
+def config_scatter_graph(infoc_para_res: dict, embedding: np.ndarray):
 
-    df_mapping_chain = infoclus.ls_mapping_chain_by_col[att_id]
-    real_labels = df_mapping_chain.iloc[:,0]
-    nuniques = len(df_mapping_chain)
-    dist_of_fixed_cluster_att = infoclus._clustersRelatedInfo[cluster_id][0].iloc[:nuniques, att_id].values
-    dist_of_att_in_data = infoclus._priors.iloc[:nuniques, att_id].values
-
-    dist_pre_cluster_att = pd.Series(dist_of_fixed_cluster_att, index=real_labels)
-    dist_prior_per_att = pd.Series(dist_of_att_in_data, index=real_labels)
-    sorted_dist_pre_cluster_att = dist_pre_cluster_att.sort_values(ascending=False)
-    sorted_dist_prior_per_att = dist_prior_per_att.loc[sorted_dist_pre_cluster_att.index]
-    sorted_labels = sorted_dist_pre_cluster_att.index
-    sorted_distribution = []
-    types = []
-    group_labels = []
-    for label in sorted_labels:
-        sorted_distribution.append(sorted_dist_pre_cluster_att[label])
-        sorted_distribution.append(sorted_dist_prior_per_att[label])
-        types.extend(['Cluster', 'Prior'])
-        group_labels.extend([label, label])
-
-    data = pd.DataFrame({
-        "Labels": group_labels,
-        "Distribution": sorted_distribution,
-        "Type": types
-    })
-    fig = px.bar(
-        data,
-        x="Labels",
-        y="Distribution",
-        color="Type",
-        barmode="group",
-        # title=f"Cluster {cluster_id} - Attribute {att_id}",
-        labels={"Distribution": "Distribution", "Labels": "Labels"}
-    )
-    fig.update_layout(
-        width=600,
-        height=400
-    )
-
-    return fig
-
-def config_scatter_graph(infoc_para_res: dict, emb_name: str = None):
-
-    data_name = infoc_para_res['data_name']
     clustering = infoc_para_res['clustering']
-
-    embeddings_path = os.path.join(DATA_FOLDER, data_name, 'cache', 'embeddings.npz')
-    if os.path.exists(embeddings_path):
-        print('Loading embeddings...')
-        embeddings_load = np.load(embeddings_path)
-        embeddings = {k: embeddings_load[k] for k in embeddings_load.files}
-        all_embeddings = embeddings
-        print('Done')
-    else:
-        print('No embedding computed')
-        return
-
-    embedding = all_embeddings[emb_name]
 
     df = pd.DataFrame({
         'x': embedding[:, 0],  # X coordinates
@@ -137,8 +72,7 @@ def config_scatter_graph(infoc_para_res: dict, emb_name: str = None):
     )
     return fig
 
-
-def config_explanations(infoc_para_res: dict, df_data: pd.DataFrame, embeddings: dict, cluster_label: int = 0):
+def config_explanations(infoc_para_res: dict, df_data: pd.DataFrame, cluster_label: int = 0):
     """
     :return: kde distributions for all selected features in a cluster, default as 0
     """
@@ -158,7 +92,8 @@ def config_explanations(infoc_para_res: dict, df_data: pd.DataFrame, embeddings:
         cluster_att = cluster.values[:, att_id]
         att_name = att_names[att_id]
         if infoc_para_res['global_arr_type'] == 'categorical':
-            fig = get_barchart(infoclus, att_id, cluster_label, att_name)
+            # fig = get_barchart(infoclus, att_id, cluster_label, att_name)
+            pass
         elif infoc_para_res['global_arr_type'] == 'numeric':
             fig = get_kde(data_att, cluster_att, att_name)
         else:
@@ -175,7 +110,6 @@ def config_explanations(infoc_para_res: dict, df_data: pd.DataFrame, embeddings:
                                  ))
 
     return figures
-
 
 def config_hyperparameter_tuning(infoc_para_res: dict):
 
@@ -294,7 +228,6 @@ def config_hyperparameter_tuning(infoc_para_res: dict):
         justify="center"
     )
 
-
 def config_layout(infoc_para_res: dict, df_data: pd.DataFrame, embeddings: dict, cluster_id: int = 0, datasets_config: str = 'datasets_info.yaml'):
 
     dataset_name = infoc_para_res['data_name']
@@ -371,7 +304,7 @@ def config_layout(infoc_para_res: dict, df_data: pd.DataFrame, embeddings: dict,
                                                 html.H5(children=dataset_name, className="card-title"),
                                                 dcc.Graph(
                                                         id="embedding-scatterPlot",
-                                                        figure=config_scatter_graph(infoc_para_res, main_emb_name)
+                                                        figure=config_scatter_graph(infoc_para_res, embeddings[main_emb_name])
                                                     )
                                             ]
                                         )
@@ -405,7 +338,7 @@ def config_layout(infoc_para_res: dict, df_data: pd.DataFrame, embeddings: dict,
                                                     value=0
                                                 ),
                                                 dbc.Row(id='explanation',
-                                                        children=config_explanations(infoc_para_res,df_data, embeddings, cluster_id),
+                                                        children=config_explanations(infoc_para_res,df_data, cluster_id),
                                                         className="g-3")
 
                                                 # html.Div(config_explanations(infoclus, cluster_id),
@@ -424,4 +357,46 @@ def config_layout(infoc_para_res: dict, df_data: pd.DataFrame, embeddings: dict,
         )
     ])
 
-
+#
+# def get_barchart(infoclus: InfoClus, att_id: int, cluster_id: int, att_name: str):
+#
+#     df_mapping_chain = infoclus.ls_mapping_chain_by_col[att_id]
+#     real_labels = df_mapping_chain.iloc[:,0]
+#     nuniques = len(df_mapping_chain)
+#     dist_of_fixed_cluster_att = infoclus._clustersRelatedInfo[cluster_id][0].iloc[:nuniques, att_id].values
+#     dist_of_att_in_data = infoclus._priors.iloc[:nuniques, att_id].values
+#
+#     dist_pre_cluster_att = pd.Series(dist_of_fixed_cluster_att, index=real_labels)
+#     dist_prior_per_att = pd.Series(dist_of_att_in_data, index=real_labels)
+#     sorted_dist_pre_cluster_att = dist_pre_cluster_att.sort_values(ascending=False)
+#     sorted_dist_prior_per_att = dist_prior_per_att.loc[sorted_dist_pre_cluster_att.index]
+#     sorted_labels = sorted_dist_pre_cluster_att.index
+#     sorted_distribution = []
+#     types = []
+#     group_labels = []
+#     for label in sorted_labels:
+#         sorted_distribution.append(sorted_dist_pre_cluster_att[label])
+#         sorted_distribution.append(sorted_dist_prior_per_att[label])
+#         types.extend(['Cluster', 'Prior'])
+#         group_labels.extend([label, label])
+#
+#     data = pd.DataFrame({
+#         "Labels": group_labels,
+#         "Distribution": sorted_distribution,
+#         "Type": types
+#     })
+#     fig = px.bar(
+#         data,
+#         x="Labels",
+#         y="Distribution",
+#         color="Type",
+#         barmode="group",
+#         # title=f"Cluster {cluster_id} - Attribute {att_id}",
+#         labels={"Distribution": "Distribution", "Labels": "Labels"}
+#     )
+#     fig.update_layout(
+#         width=600,
+#         height=400
+#     )
+#
+#     return fig

@@ -421,7 +421,7 @@ class InfoClus:
             self.result_obj = _Result(self.data_obj.prior[0], self.data_obj.prior[1], self.model_obj.base_clusters, self.data_obj.size)
             self._run_infoclus_agglomerative()
             cache_dict = self.create_cache_version(cache_name, self.allow_cache)
-        self.print_result_in_terminal()
+            self.print_result_in_terminal()
         return cache_dict
 
 
@@ -632,7 +632,4 @@ class InfoClus:
         cache_name = get_hashkey_from_dict(current_paras)
 
         pre_calc = from_cache(os.path.join(self.data_obj.cache_path, cache_name))
-        if pre_calc is not None:
-            print("From cache")
-            self.result_obj = pre_calc['results']
         return cache_name, pre_calc
