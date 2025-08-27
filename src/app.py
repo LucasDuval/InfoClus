@@ -33,20 +33,24 @@ for url in my_css_urls:
 app.layout = dash.html.Div(
     id='main-div',
     children=[
-        dbc.NavbarSimple(brand="InfoClus", color="primary", dark=True, fluid=True, sticky='top', brand_href="#"),
+
+        dash.html.Header(
+            children= "InfoClus",
+            id="infoc_bar",
+            className="my-navbar"
+        ),
         dash.dcc.Store(id='infoclus_store', storage_type='memory', data=infoc_para_res_dict),
         dash.dcc.Store(id='dataset_store', storage_type='memory', data=serialize_obj(df_data)),
         dash.dcc.Store(id='embedding_store', storage_type='memory', data=serialize_obj(embeddings)),
         dbc.Container(
+            id='infoclus_container',
             fluid=True,
             children=[
-                dbc.Row(
-                    dbc.Col(
-                        dash.html.Div(
-                            id = 'dashboard-content',
-                            children=config_layout(infoc_para_res_dict, df_data, embeddings))))
+                    dash.html.Div(
+                    id = 'dashboard-content',
+                    children=config_layout(infoc_para_res_dict, df_data, embeddings))
             ],
-            style={'marginTop': '80px'}
+            style={'marginTop': 0}
         )
     ]
 )

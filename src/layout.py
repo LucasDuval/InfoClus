@@ -243,6 +243,33 @@ def config_layout(infoc_para_res: dict, df_data: pd.DataFrame, embeddings: dict,
 
     return html.Div([
 
+        dbc.Row(
+            id='layout',
+            children=[
+                dbc.Col(
+                    xs=12,
+                    sm=3,
+                    md=2,
+                    id='selection-panel',
+                    children=[]
+                ),
+                dbc.Col(
+                    xs=12,
+                    sm=6,
+                    md=6,
+                    id = 'clustering-panel',
+                    children=[]
+                ),
+                dbc.Col(
+                    xs=12,
+                    sm=3,
+                    md=3,
+                    id='explanation-panel',
+                    children=[]
+                )
+            ]
+        ),
+
         # Dashboard with general info
         dbc.Card(
             dbc.CardBody(
