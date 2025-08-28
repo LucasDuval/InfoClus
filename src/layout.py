@@ -7,6 +7,7 @@ from sklearn.neighbors import KernelDensity
 from dash import dcc, html
 import dash_bootstrap_components as dbc
 
+
 RUNTIME_MARKERS = ["0.01s", "0.5s", "1s", "5s", "10s", "30s", "1m","3m", "5m", "10m", "30m", "1h"]
 
 SIDEBAR_STYLE = {
@@ -282,9 +283,10 @@ def config_layout(infoc_para_res: dict, df_data: pd.DataFrame, embeddings: dict,
                 dbc.Col(
                     xs=12,
                     sm=3,
-                    md=2,
+                    md=3,
                     id='selection-panel',
-                    children=[
+                    children=dbc.Card(
+                        dbc.CardBody([
                         html.Div(
                             children=[
                                 dbc.Row('Welcome to InfoClus, '
@@ -294,29 +296,38 @@ def config_layout(infoc_para_res: dict, df_data: pd.DataFrame, embeddings: dict,
 
                                 dbc.Row(
                                     children=[
-                                        dbc.Col('Select dataset', width='auto'),
-                                        dbc.Col(
-                                            children=dcc.Dropdown(
+                                        html.Span(
+                                            children=[
+                                                'Select dataset: ',
+                                                dcc.Dropdown(
                                                     options=get_dataset_dropdown_items(),
                                                     value=dataset_name,
-                                                    id='dataset-select'
-                                            ),
-                                            width='auto'
-                                        )
+                                                    id='dataset-select',
+                                                    style={'width': '15em',
+                                                           'display': 'inline-block',
+                                                           'verticalAlign': 'middle'
+                                                           }
+                                                )
+                                            ],
+                                        ),
                                     ]
                                 ),
 
                                 dbc.Row(
                                     children=[
-                                        dbc.Col('Select embedding', width='auto'),
-                                        dbc.Col(
-                                            children=dcc.Dropdown(
-                                                options=get_embedding_dropdown_items(),
-                                                value=main_emb_name,
-                                                id='embedding-select'
-                                            ),
-                                            width='auto'
-                                        )
+                                        html.Span(
+                                            children=[
+                                                'Select embedding: ',
+                                                dcc.Dropdown(
+                                                    options=get_embedding_dropdown_items(),
+                                                    value=main_emb_name,
+                                                    id='embedding-select',
+                                                    style={'width': '13em',
+                                                           'display': 'inline-block',
+                                                           'verticalAlign': 'middle'},
+                                                )
+                                            ]
+                                        ),
                                     ]
                                 ),
 
@@ -335,7 +346,7 @@ def config_layout(infoc_para_res: dict, df_data: pd.DataFrame, embeddings: dict,
                                                                         value=infoc_para_res['alpha'],
                                                                         tooltip={"always_visible": False}
                                                                     ),
-                                                            width='auto'),
+                                                            ),
                                                 ]
                                             ),
                                             dbc.Row(
@@ -349,7 +360,7 @@ def config_layout(infoc_para_res: dict, df_data: pd.DataFrame, embeddings: dict,
                                                                         value=infoc_para_res['beta'],
                                                                         tooltip={"always_visible": False}
                                                                     ),
-                                                            width='auto'),
+                                                            ),
                                                 ]
                                             ),
                                             dbc.Row(
@@ -369,28 +380,36 @@ def config_layout(infoc_para_res: dict, df_data: pd.DataFrame, embeddings: dict,
                                             )
                                         ]
                                     ),
-                                    color='green'
+                                    color='white'
                                 )])]),
+                        className='h-100')
+                ),
                 dbc.Col(
                     xs=12,
                     sm=6,
                     md=6,
                     id = 'clustering-panel',
-                    children=[
+                    children=dbc.Card(
+                        dbc.CardBody([
                         html.Div(
                             [
                                 dbc.Row(
-                                [
-                                    html.Span('clustering', id='clustering-text', style={'font-style': 'italic'}),
-                                    ' shown on embedding ',
-                                     html.Span(
+                                children=[
+                                    html.Span(children=[
+                                        html.Span('clustering', id='clustering-text', style={'font-style': 'italic'}),
+                                        ' shown on embedding ',
                                          dcc.Dropdown(
                                              options=get_embedding_dropdown_items(),
                                              value=main_emb_name,
-                                             id='embedding-for-show'
-                                         ),
-                                     ),
-                                ]),
+                                             id='embedding-for-show',
+                                             style={'width': '8em',
+                                                    'display': 'inline-block',
+                                                    'verticalAlign': 'middle'
+                                                    }
+                                         )
+                                    ], ),
+                                ],
+                                ),
                                 dbc.Tooltip(
                                     get_auxiliary_text_for_clustering(),
                                     target='clustering-text',
@@ -402,20 +421,20 @@ def config_layout(infoc_para_res: dict, df_data: pd.DataFrame, embeddings: dict,
                                     style={'width': '100%', 'height': '100%'},
                                     config={'responsive': True}
                                 ),
-                                html.Span(
-                                    [
-                                        dcc.Markdown(
-                                            r"$  R_{\alpha, \beta}(\mathcal{C}, \mathcal{E}) = \frac{\sum_{i=1}^r{\sum_{j=1}^{|e_i|}{I_i^j}}}{\alpha + (\sum_{i=1}^r{\sum_{j=1}^{|e_i|}{|a_i^j|}})^\beta} $"
-                                        ),
-                                        "is ..."
-                                    ]
-                                )],)]),
+                                dcc.Markdown(
+                                    r"$R_{\alpha,\beta}(\mathcal{C}, \mathcal{E}) = \frac{\sum_{i=1}^r{\sum_{j=1}^{|e_i|}{I_i^j}}}{\alpha + (\sum_{i=1}^r{\sum_{j=1}^{|e_i|}{|a_i^j|}})^\beta}$ is ...",
+                                    mathjax=True
+                                )
+                            ],)]),
+                        className='h-100')
+                ),
                 dbc.Col(
                     xs=12,
                     sm=3,
                     md=3,
                     id='explanation-panel',
-                    children=[
+                    children=dbc.Card(
+                        dbc.CardBody([
                         html.Div(
                             [html.Span(
                             [html.H5("Cluster explanation"),
@@ -430,7 +449,8 @@ def config_layout(infoc_para_res: dict, df_data: pd.DataFrame, embeddings: dict,
                                 children=config_explanations(infoc_para_res, df_data, cluster_id),
                                 className="g-3",
                                 style={
-                                    'flex': '1',  # 占满剩余空间
+                                    # 'flex': '1',  # 占满剩余空间
+                                    'height': '550px',
                                     'overflowY': 'auto',  # 垂直滚动
                                     'border': '1px solid #ccc',
                                     'padding': '10px'
@@ -440,7 +460,12 @@ def config_layout(infoc_para_res: dict, df_data: pd.DataFrame, embeddings: dict,
 
                         )
 
-                    ])]),
+                    ]),
+                        className='h-100'
+                    )
+                )
+            ]
+        )
         ])
 
 #

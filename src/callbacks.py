@@ -44,7 +44,7 @@ def register_callbacks(app):
 
         elif trigger_id == 'recalc-hyperparameters':
             infoclus_obj = build_infoclus(dataset_name=dataset, emb_name=embedding_name)
-            info_cache_update = infoclus_obj.optimise(alpha=alpha, beta=beta, min_att=min_att,max_att=max_att, runtime_id=recalc_hyperparams)
+            info_cache_update = infoclus_obj.optimise(alpha=alpha, beta=beta, min_att=min_att,max_att=max_att, run_id=recalc_hyperparams)
             data_update = dash.no_update
             embeddings_update = dash.no_update
         else:

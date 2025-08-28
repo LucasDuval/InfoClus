@@ -22,6 +22,7 @@ infoclus_obj = build_infoclus('german_socio_eco')
 infoc_para_res_dict = infoclus_obj.optimise()
 
 app = dash.Dash(__name__, external_stylesheets=[dbc.themes.BOOTSTRAP])
+
 app.title = "InfoClus | A Dashboard for explainable clustering helping you understand your dataset better"
 app.css.config.serve_locally = False
 my_css_urls = ["https://codepen.io/rmarren1/pen/mLqGRg.css"]
@@ -42,20 +43,19 @@ app.layout = dash.html.Div(
         dash.dcc.Store(id='infoclus_store', storage_type='memory', data=infoc_para_res_dict),
         dash.dcc.Store(id='dataset_store', storage_type='memory', data=serialize_obj(df_data)),
         dash.dcc.Store(id='embedding_store', storage_type='memory', data=serialize_obj(embeddings)),
+        # dbc.Container(
+        #     id='infoclus_container',
+        #     fluid=True,
+        #     children=[
+        #             dash.html.Div(
+        #             id = 'dashboard-content',
+        #             children=config_layout(infoc_para_res_dict, df_data, embeddings))
+        #     ],
+        # )
         dbc.Container(
-            id='infoclus_container',
             fluid=True,
-            children=[
-                    dash.html.Div(
-                    id = 'dashboard-content',
-                    children=config_layout(infoc_para_res_dict, df_data, embeddings))
-            ],
-            style={
-                'flex': '1',  # 占满剩余高度
-                'overflowY': 'auto',  # 垂直滚动
-                'border': '1px solid #ccc',
-                'padding': '10px'
-            }
+            id='dashboard-content',
+            children=config_layout(infoc_para_res_dict, df_data, embeddings)
         )
     ]
 )
