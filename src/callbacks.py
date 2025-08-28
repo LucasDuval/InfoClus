@@ -14,14 +14,14 @@ def register_callbacks(app):
         Output('dataset_store', 'data'),
         Output('embedding_store', 'data'),
         [Input('dataset-select', 'value'),
-         Input('recalc-hyperparameters', 'n_clicks')],
+         Input('recalc-hyperparameters', 'value')],
         [State("embedding-select", "value"),
         State("alpha-slider", "value"),
         State("beta-slider", "value"),
-        State("runtime-slider", "value"),
-        State("minAtt-slider", "value")]
+        State("min-att-input", "value"),
+        State("max-att-input", "value")]
     )
-    def update_store(dataset, recalc_hyperparams, embedding_name, alpha, beta, runtime_id, min_att):
+    def update_store(dataset, recalc_hyperparams, embedding_name, alpha, beta, min_att, max_att):
 
         ctx = dash.callback_context
         if not ctx.triggered:
@@ -44,7 +44,7 @@ def register_callbacks(app):
 
         elif trigger_id == 'recalc-hyperparameters':
             infoclus_obj = build_infoclus(dataset_name=dataset, emb_name=embedding_name)
-            info_cache_update = infoclus_obj.optimise(alpha=alpha, beta=beta, min_att=min_att, runtime_id=runtime_id)
+            info_cache_update = infoclus_obj.optimise(alpha=alpha, beta=beta, min_att=min_att,max_att=max_att, runtime_id=recalc_hyperparams)
             data_update = dash.no_update
             embeddings_update = dash.no_update
         else:
@@ -79,7 +79,7 @@ def register_callbacks(app):
 
     @app.callback(
         Output('embedding-scatterPlot', 'figure'),
-        Input('embedding-select', 'value'),
+        Input('embedding-for-show', 'value'),
         [State('infoclus_store', 'data'),
          State('embedding_store', 'data')]
     )

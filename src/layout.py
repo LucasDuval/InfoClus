@@ -66,10 +66,10 @@ def config_scatter_graph(infoc_para_res: dict, embedding: np.ndarray):
         'class': pd.Categorical(clustering)  # Classifications
     })
     fig = px.scatter(df, x='x', y='y', color='class')
-    fig.update_layout(
-        width=810,
-        height=540
-    )
+    # fig.update_layout(
+    #     width=810,
+    #     height=540
+    # )
     return fig
 
 def config_explanations(infoc_para_res: dict, df_data: pd.DataFrame, cluster_label: int = 0):
@@ -102,131 +102,164 @@ def config_explanations(infoc_para_res: dict, df_data: pd.DataFrame, cluster_lab
         figures.append(html.H6([att_name, dbc.Badge(format(ics_cluster[att_id], '.1f') + " IC", color="success", className="ml-1")]))
         figures.append(dcc.Graph(id=f"Cluster {cluster_label}, {att_name}",
                                  figure=fig,
-                                 config={'displayModeBar': False},
-                                 style={
-                                     "width": "100%",
-                                     "height": "100%",
-                                     "marginBottom": "1rem"}
-                                 ))
+                                 style = {'width': '100%', 'height': '100%'},
+                                 config = {'responsive': True}
+                                 )
+                       )
 
     return figures
+#
+# def config_hyperparameter_tuning(infoc_para_res: dict):
+#
+#     alpha = infoc_para_res['alpha']
+#     alpha_max = alpha * 5
+#     alpha_min = 0
+#
+#     beta = infoc_para_res['beta']
+#     beta_max = 2
+#     beta_min = 1
+#
+#     mina = infoc_para_res['min_att']
+#     mina_max = mina * 5
+#     mina_min = 0
+#     maxa = infoc_para_res['max_att']
+#     maxa_max = maxa * 5
+#     maxa_min = 0
+#
+#     runid = int(infoc_para_res['runtime_id'])
+#     runid_max = len(RUNTIME_MARKERS)
+#     runid_min = 0
+#
+#
+#     return dbc.Row(
+#         [
+#             dbc.Col(
+#                 [
+#                     # Alpha
+#                     dbc.Row(
+#                         [
+#                             dbc.Col(html.H6(u"\u03B1"), width=2),
+#                             dbc.Col(
+#                                 dcc.Slider(
+#                                     id='alpha-slider',
+#                                     min=alpha_min,
+#                                     max=alpha_max,
+#                                     step=10,
+#                                     marks={i: str(i) for i in range(alpha_min, alpha_max, int((alpha_max-alpha_min)/10))},
+#                                     value=alpha,
+#                                     tooltip={"always_visible": False}
+#                                 )
+#                             )
+#                         ]
+#                     ),
+#                     # Beta
+#                     dbc.Row(
+#                         [
+#                             dbc.Col(html.H6(u"\u03B2"), width=2),
+#                             dbc.Col(
+#                                 dcc.Slider(
+#                                     id='beta-slider',
+#                                     min=beta_min,
+#                                     max=beta_max,
+#                                     step=0.05,
+#                                     marks={round(i, 1): format(i, '.1f') for i in
+#                                            np.arange(beta_min, beta_max, 0.1)},
+#                                     value=beta,
+#                                     tooltip={"always_visible": False}
+#                                 )
+#                             )
+#                         ]
+#                     ),
+#                     # Runtime
+#                     dbc.Row(
+#                         [
+#                             dbc.Col(html.H6("runtime"), width=2),
+#                             dbc.Col(
+#                                 dcc.Slider(
+#                                     id='runtime-slider',
+#                                     min=runid_min,
+#                                     max=runid_max,
+#                                     step=1,
+#                                     marks={i: RUNTIME_MARKERS[i] for i in range(runid_max)},
+#                                     value=runid,
+#                                     tooltip={"always_visible": False}
+#                                 )
+#                             )
+#                         ]
+#                     ),
+#                     # Min Attributes
+#                     dbc.Row(
+#                         [
+#                             dbc.Col(html.H6("minAtt"), width=2),
+#                             dbc.Col(
+#                                 dcc.Slider(
+#                                     id='minAtt-slider',
+#                                     min=mina_min,
+#                                     max=mina_max,
+#                                     step=1,
+#                                     marks={i: str(i) for i in range(mina_max, 1)},
+#                                     value=mina,
+#                                     tooltip={"always_visible": False}
+#                                 )
+#                             )
+#                         ]
+#                     ),
+#                 ],
+#                 align="center",
+#             ),
+#             dbc.Col(
+#                 [
+#                     dbc.Row(dbc.Col(
+#                         # Recalc restarts from scratch
+#                         dbc.Button("Recalc", color="primary", size="md", id="recalc-hyperparameters")),
+#                         justify="center"
+#                     ),
+#                     dbc.Tooltip(
+#                         "Restart calculation from scratch",
+#                         target="recalc-hyperparameters",
+#                         placement="right"
+#                     )
+#                 ],
+#                 align="center", width="auto"
+#             )
+#         ],
+#         justify="center"
+#     )
 
-def config_hyperparameter_tuning(infoc_para_res: dict):
+def get_dataset_dropdown_items():
+    items =[
+        {'label': 'cytometry_2500', 'value': 'cytometry_2500'},
+        {'label': 'german_socio_eco', 'value': 'german_socio_eco'}
+    ]
+    return items
 
-    alpha = infoc_para_res['alpha']
-    alpha_max = alpha * 5
-    alpha_min = 0
+def get_embedding_dropdown_items():
+    items =[
+        {'label': 'tsne', 'value': 'tsne'},
+        {'label': 'pca', 'value': 'pca'}
+    ]
+    return items
 
-    beta = infoc_para_res['beta']
-    beta_max = 2
-    beta_min = 1
+def get_runtime_dropdown_items():
+    items =[
+        {'label': 'recalculate in 1 s', 'value': '1'},
+        {'label': 'recalculate in 5 s', 'value': '5'}
+    ]
+    return items
 
-    mina = infoc_para_res['min_att']
-    mina_max = mina * 5
-    mina_min = 0
-    maxa = infoc_para_res['max_att']
-    maxa_max = maxa * 5
-    maxa_min = 0
-
-    runid = int(infoc_para_res['runtime_id'])
-    runid_max = len(RUNTIME_MARKERS)
-    runid_min = 0
-
-
-    return dbc.Row(
-        [
-            dbc.Col(
-                [
-                    # Alpha
-                    dbc.Row(
-                        [
-                            dbc.Col(html.H6(u"\u03B1"), width=2),
-                            dbc.Col(
-                                dcc.Slider(
-                                    id='alpha-slider',
-                                    min=alpha_min,
-                                    max=alpha_max,
-                                    step=10,
-                                    marks={i: str(i) for i in range(alpha_min, alpha_max, int((alpha_max-alpha_min)/10))},
-                                    value=alpha,
-                                    tooltip={"always_visible": False}
-                                )
-                            )
-                        ]
-                    ),
-                    # Beta
-                    dbc.Row(
-                        [
-                            dbc.Col(html.H6(u"\u03B2"), width=2),
-                            dbc.Col(
-                                dcc.Slider(
-                                    id='beta-slider',
-                                    min=beta_min,
-                                    max=beta_max,
-                                    step=0.05,
-                                    marks={round(i, 1): format(i, '.1f') for i in
-                                           np.arange(beta_min, beta_max, 0.1)},
-                                    value=beta,
-                                    tooltip={"always_visible": False}
-                                )
-                            )
-                        ]
-                    ),
-                    # Runtime
-                    dbc.Row(
-                        [
-                            dbc.Col(html.H6("runtime"), width=2),
-                            dbc.Col(
-                                dcc.Slider(
-                                    id='runtime-slider',
-                                    min=runid_min,
-                                    max=runid_max,
-                                    step=1,
-                                    marks={i: RUNTIME_MARKERS[i] for i in range(runid_max)},
-                                    value=runid,
-                                    tooltip={"always_visible": False}
-                                )
-                            )
-                        ]
-                    ),
-                    # Min Attributes
-                    dbc.Row(
-                        [
-                            dbc.Col(html.H6("minAtt"), width=2),
-                            dbc.Col(
-                                dcc.Slider(
-                                    id='minAtt-slider',
-                                    min=mina_min,
-                                    max=mina_max,
-                                    step=1,
-                                    marks={i: str(i) for i in range(mina_max, 1)},
-                                    value=mina,
-                                    tooltip={"always_visible": False}
-                                )
-                            )
-                        ]
-                    ),
-                ],
-                align="center",
-            ),
-            dbc.Col(
-                [
-                    dbc.Row(dbc.Col(
-                        # Recalc restarts from scratch
-                        dbc.Button("Recalc", color="primary", size="md", id="recalc-hyperparameters")),
-                        justify="center"
-                    ),
-                    dbc.Tooltip(
-                        "Restart calculation from scratch",
-                        target="recalc-hyperparameters",
-                        placement="right"
-                    )
-                ],
-                align="center", width="auto"
-            )
-        ],
-        justify="center"
+def get_slider(min_v, max_v):
+    dcc.Slider(
+        id='runtime-slider',
+        min=min_v,
+        max=max_v,
+        step=(max_v-min_v)/10,
+        # marks={i: RUNTIME_MARKERS[i] for i in range(runid_max)},
+        value=(max_v+min_v)/2,
+        tooltip={"always_visible": False}
     )
+
+def get_auxiliary_text_for_clustering():
+    return "The clustering result is computed under parameters ..."
 
 def config_layout(infoc_para_res: dict, df_data: pd.DataFrame, embeddings: dict, cluster_id: int = 0, datasets_config: str = 'datasets_info.yaml'):
 
@@ -251,138 +284,164 @@ def config_layout(infoc_para_res: dict, df_data: pd.DataFrame, embeddings: dict,
                     sm=3,
                     md=2,
                     id='selection-panel',
-                    children=[]
-                ),
+                    children=[
+                        html.Div(
+                            children=[
+                                dbc.Row('Welcome to InfoClus, '
+                                        'a new clustering method that also explains its clusters. '
+                                        'Play with existed datasets or import your own dataset!',
+                                        id='welcome-block'),
+
+                                dbc.Row(
+                                    children=[
+                                        dbc.Col('Select dataset', width='auto'),
+                                        dbc.Col(
+                                            children=dcc.Dropdown(
+                                                    options=get_dataset_dropdown_items(),
+                                                    value=dataset_name,
+                                                    id='dataset-select'
+                                            ),
+                                            width='auto'
+                                        )
+                                    ]
+                                ),
+
+                                dbc.Row(
+                                    children=[
+                                        dbc.Col('Select embedding', width='auto'),
+                                        dbc.Col(
+                                            children=dcc.Dropdown(
+                                                options=get_embedding_dropdown_items(),
+                                                value=main_emb_name,
+                                                id='embedding-select'
+                                            ),
+                                            width='auto'
+                                        )
+                                    ]
+                                ),
+
+                                dbc.Card(
+                                    dbc.CardBody(
+                                        [
+                                            html.H5('Hyper-parameters tuning', className='card-title'),
+                                            dbc.Row(
+                                                [
+                                                    dbc.Col('alpha', width='auto'),
+                                                    dbc.Col(children=dcc.Slider(
+                                                                        id='alpha-slider',
+                                                                        min=infoc_para_res['alpha']/5,
+                                                                        max=infoc_para_res['alpha']*5,
+                                                                        step=(infoc_para_res['alpha']*5-infoc_para_res['alpha']/5)/10,
+                                                                        value=infoc_para_res['alpha'],
+                                                                        tooltip={"always_visible": False}
+                                                                    ),
+                                                            width='auto'),
+                                                ]
+                                            ),
+                                            dbc.Row(
+                                                [
+                                                    dbc.Col('beta', width='auto'),
+                                                    dbc.Col(children=dcc.Slider(
+                                                                        id='beta-slider',
+                                                                        min=infoc_para_res['beta']/5,
+                                                                        max=infoc_para_res['beta']*5,
+                                                                        step=(infoc_para_res['beta']*5-infoc_para_res['beta']/5)/10,
+                                                                        value=infoc_para_res['beta'],
+                                                                        tooltip={"always_visible": False}
+                                                                    ),
+                                                            width='auto'),
+                                                ]
+                                            ),
+                                            dbc.Row(
+                                                [
+                                                    dbc.Col('min_att', width='auto'),
+                                                    dbc.Col(children=dcc.Input(type="number", value=2, step=1, min=0,max=10, id='min-att-input'),
+                                                            width='auto'),
+                                                    dbc.Col('max_att', width='auto'),
+                                                    dbc.Col(children=dcc.Input(type="number", value=5, step=1, min=3, max=10, id='max-att-input',),
+                                                            width='auto'),
+                                                ],
+                                            ),
+                                            dcc.Dropdown(
+                                                value ='1',
+                                                options=get_runtime_dropdown_items(),
+                                                id = 'recalc-hyperparameters'
+                                            )
+                                        ]
+                                    ),
+                                    color='green'
+                                )])]),
                 dbc.Col(
                     xs=12,
                     sm=6,
                     md=6,
                     id = 'clustering-panel',
-                    children=[]
-                ),
+                    children=[
+                        html.Div(
+                            [
+                                dbc.Row(
+                                [
+                                    html.Span('clustering', id='clustering-text', style={'font-style': 'italic'}),
+                                    ' shown on embedding ',
+                                     html.Span(
+                                         dcc.Dropdown(
+                                             options=get_embedding_dropdown_items(),
+                                             value=main_emb_name,
+                                             id='embedding-for-show'
+                                         ),
+                                     ),
+                                ]),
+                                dbc.Tooltip(
+                                    get_auxiliary_text_for_clustering(),
+                                    target='clustering-text',
+                                    placement='top'
+                                ),
+                                dcc.Graph(
+                                    id="embedding-scatterPlot",
+                                    figure=config_scatter_graph(infoc_para_res, embeddings[main_emb_name]),
+                                    style={'width': '100%', 'height': '100%'},
+                                    config={'responsive': True}
+                                ),
+                                html.Span(
+                                    [
+                                        dcc.Markdown(
+                                            r"$  R_{\alpha, \beta}(\mathcal{C}, \mathcal{E}) = \frac{\sum_{i=1}^r{\sum_{j=1}^{|e_i|}{I_i^j}}}{\alpha + (\sum_{i=1}^r{\sum_{j=1}^{|e_i|}{|a_i^j|}})^\beta} $"
+                                        ),
+                                        "is ..."
+                                    ]
+                                )],)]),
                 dbc.Col(
                     xs=12,
                     sm=3,
                     md=3,
                     id='explanation-panel',
-                    children=[]
-                )
-            ]
-        ),
+                    children=[
+                        html.Div(
+                            [html.Span(
+                            [html.H5("Cluster explanation"),
+                             dcc.Dropdown(
+                                 id='cluster-select',
+                                 options=[
+                                     {'label': "Cluster " + str(i), 'value': i} for i in range(infoc_para_res['count_clusters'])
+                                 ],
+                                 value=cluster_id
+                             ),]),
+                        dbc.Row(id='explanation',
+                                children=config_explanations(infoc_para_res, df_data, cluster_id),
+                                className="g-3",
+                                style={
+                                    'flex': '1',  # 占满剩余空间
+                                    'overflowY': 'auto',  # 垂直滚动
+                                    'border': '1px solid #ccc',
+                                    'padding': '10px'
+                                }
+                                )]
 
-        # Dashboard with general info
-        dbc.Card(
-            dbc.CardBody(
-                [
-                    # Dropdowns
-                    dbc.Row(
-                        [
-                        dbc.Col(
-                            dcc.Dropdown(
-                                id='dataset-select',
-                                options=[
-                                    {'label': dataset, 'value': dataset} for dataset in datasets_info['datasets']
-                                ],
-                                value=dataset_name
-                            )
-                        ),
-                        dbc.Col(
-                            dcc.Dropdown(
-                                id='embedding-select',
-                                options=[
-                                    {'label': embedding, 'value': embedding} for embedding in datasets_info['embeddings']['method']
-                                ],
-                                value=main_emb_name
-                            )
+
                         )
-                    ]),
-                    dbc.Row(
-                        html.Div([html.Span("embedding used for clustering: ", style={'margin-right': '10px'}),
-                                  dcc.Input(id='embedding-used-for-clustering', type='text',
-                                            value=f"{infoc_para_res['emb_name']}", readOnly=True,
-                                            style=top_bar_style),
-                                  html.Span("alpha: ", style={'margin-right': '10px'}),
-                                  dcc.Input(id='alpha-value', type='text', value=f"{infoc_para_res['alpha']}", readOnly=True,
-                                            style=top_bar_style),
-                                  html.Span("beta: ", style={'margin-right': '10px'}),
-                                  dcc.Input(id='beta-value', type='text', value=f"{infoc_para_res['beta']}", readOnly=True,
-                                            style=top_bar_style),
-                                  html.Span("min_att: ", style={'margin-right': '10px'}),
-                                  dcc.Input(id='min-att', type='text', value=f"{infoc_para_res['min_att']}", readOnly=True,
-                                            style=top_bar_style),
-                                  html.Span("max_att: ", style={'margin-right': '10px'}),
-                                  dcc.Input(id='max-att', type='text', value=f"{infoc_para_res['max_att']}", readOnly=True,
-                                            style=top_bar_style),
-                                  html.Span("run time: ", style={'margin-right': '10px'}),
-                                  dcc.Input(id='run time id', type='text', value=f"{infoc_para_res['runtime']}", readOnly=True,
-                                            style=top_bar_style),
-                                  ]),
-                    ),
-                    html.Br(),
-                    dbc.Row(
-                        [
-                            # Scatter plot and hyperparameter tuning
-                            dbc.Col(
-                                [
-                                    # Scatter plot
-                                    dbc.Card(
-                                        dbc.CardBody(
-                                            [
-                                                html.H5(children=dataset_name, className="card-title"),
-                                                dcc.Graph(
-                                                        id="embedding-scatterPlot",
-                                                        figure=config_scatter_graph(infoc_para_res, embeddings[main_emb_name])
-                                                    )
-                                            ]
-                                        )
-                                    ),
-                                    html.Br(),
-                                    # Hyperparameter tuning
-                                    dbc.Card(
-                                        dbc.CardBody(
-                                            [
-                                                html.H5(children="Tune hyperparameters", className="card-title"),
-                                                config_hyperparameter_tuning(infoc_para_res)
-                                            ]
-                                        )
-                                    ),
-                                ],
-                                width=7
-                            ),
 
-                            # Explanation
-                            dbc.Col(
-                                [
-                                    dbc.Card(
-                                        dbc.CardBody(
-                                            [
-                                                html.H5(children="Cluster explanation", className="card-title"),
-                                                dcc.Dropdown(
-                                                    id='cluster-select',
-                                                    options=[
-                                                        {'label': "Cluster " + str(i), 'value': i} for i in range(count_clusters)
-                                                    ],
-                                                    value=0
-                                                ),
-                                                dbc.Row(id='explanation',
-                                                        children=config_explanations(infoc_para_res,df_data, cluster_id),
-                                                        className="g-3")
-
-                                                # html.Div(config_explanations(infoclus, cluster_id),
-                                                #          id="explanation", style=SIDEBAR_STYLE,
-                                                #          )
-                                            ]
-                                        ),
-                                    )
-                                ],
-                            width=5
-                            )
-                        ], align="start", justify="start", className="g-3"
-                    )
-                ]
-            )
-        )
-    ])
+                    ])]),
+        ])
 
 #
 # def get_barchart(infoclus: InfoClus, att_id: int, cluster_id: int, att_name: str):

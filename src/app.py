@@ -50,7 +50,12 @@ app.layout = dash.html.Div(
                     id = 'dashboard-content',
                     children=config_layout(infoc_para_res_dict, df_data, embeddings))
             ],
-            style={'marginTop': 0}
+            style={
+                'flex': '1',  # 占满剩余高度
+                'overflowY': 'auto',  # 垂直滚动
+                'border': '1px solid #ccc',
+                'padding': '10px'
+            }
         )
     ]
 )
