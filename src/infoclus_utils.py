@@ -275,6 +275,45 @@ def ic_one_info(means_cluster, vars_cluster, n_samples, prior):
     cluster_ic.extend(ic2)
     return cluster_ic
 
+def get_opt_attributes(alpha, beta, dls, ics, min_att=2, max_att=5):
+    ics = np.array(ics)
+
+    sortedic = np.dstack(np.unravel_index(np.argsort(-ics.ravel()), ics.shape))[0]
+    find_index = sortedic[:, 0]
+    attributes_total = []
+    ic_attributes = 0
+    dl = 0
+    for i in range(len(ics)):
+        index = np.where(find_index == i)[0][0:min_att]
+        attributes = [sortedic[ind][1] for ind in index]
+        attributes_total.append(attributes)
+        ic_attributes += sum(ics[i, attributes])
+        dl = dl + sum((dls.iloc[attribute]) for attribute in attributes)
+        sortedic = np.delete(sortedic, index, axis=0)
+        find_index = np.delete(find_index, index, axis=0)
+    best_comb_val = ic_attributes / (alpha + dl ** beta)
+
+    out_max_att_limit = False
+    while not out_max_att_limit and len(sortedic) > 0:
+        extend_cluster_try = sortedic[0][0]
+        extend_attr_try = sortedic[0][1]
+        sortedic = np.delete(sortedic, 0, axis=0)
+        if len(attributes_total[extend_cluster_try]) >= max_att:
+            continue
+        dl_try = dl + dls.iloc[extend_attr_try]
+        ic_attributes_try = ic_attributes + ics[extend_cluster_try, extend_attr_try]
+        si_try = ic_attributes_try / (alpha + dl_try ** beta)
+        if si_try >= best_comb_val:
+            best_comb_val = si_try
+            attributes_total[extend_cluster_try].append(extend_attr_try)
+            dl = dl_try
+            ic_attributes = ic_attributes_try
+            out_max_att_limit = all(len(attribute) >= max_att for attribute in attributes_total)
+        else:
+            break
+
+    return attributes_total, ic_attributes, dl, best_comb_val
+
 #
 # def visualize_result(self, show_now_embedding = True, save_embedding = False, show_now_explanation = False, save_explanation = False):
 #

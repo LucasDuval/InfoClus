@@ -48,12 +48,30 @@ def get_kde(data_att: np.ndarray, cluster_att: np.ndarray, att_name: str):
                              line=dict(color='green', width=2, dash='dot')))
     fig.add_trace(go.Scatter(x=x_vals, y=overlap_density, fill='tozeroy', name=f'{percentage}% Overlapped by Cluster',
                              line=dict(color='orange', width=1)))
-    fig.update_layout(xaxis_title="Value",
-                      yaxis_title="Densities",
-                      showlegend=True,
-                      width=600,  # Set the figure width in pixels
-                      height=400
-                      )
+
+    fig.update_layout(
+        xaxis=dict(
+            title="Value",
+            showline=True,
+            linecolor="gray",
+            linewidth=1
+        ),
+        yaxis=dict(
+            title="Densities",
+            showline=True,
+            linecolor="gray",
+            linewidth=1
+        ),
+        showlegend=False,
+        plot_bgcolor='rgba(0,0,0,0)',
+        margin=dict(l=0, r=0, t=0, b=0)
+    )
+
+    # fig.update_layout(
+    #                   showlegend=True,
+    #                   width=600,  # Set the figure width in pixels
+    #                   height=400
+    #                   )
 
     return fig
 
@@ -64,13 +82,18 @@ def config_scatter_graph(infoc_para_res: dict, embedding: np.ndarray):
     df = pd.DataFrame({
         'x': embedding[:, 0],  # X coordinates
         'y': embedding[:, 1],  # Y coordinates
-        'class': pd.Categorical(clustering)  # Classifications
+        'class': pd.Categorical(clustering),  # Classifications
+        'customdata': list(range(len(clustering)))
     })
-    fig = px.scatter(df, x='x', y='y', color='class')
-    # fig.update_layout(
-    #     width=810,
-    #     height=540
-    # )
+    fig = px.scatter(df, x='x', y='y', color='class', custom_data=['customdata'])
+    fig.update_layout(
+        plot_bgcolor='rgba(0,0,0,0)',
+        xaxis=dict(visible=False),
+        yaxis=dict(visible=False),
+        margin=dict(l=0, r=0, t=0, b=0)
+    )
+    fig.update_traces(customdata=df["customdata"])
+
     return fig
 
 def config_explanations(infoc_para_res: dict, df_data: pd.DataFrame, cluster_label: int = 0):
@@ -103,129 +126,47 @@ def config_explanations(infoc_para_res: dict, df_data: pd.DataFrame, cluster_lab
         figures.append(html.H6([att_name, dbc.Badge(format(ics_cluster[att_id], '.1f') + " IC", color="success", className="ml-1")]))
         figures.append(dcc.Graph(id=f"Cluster {cluster_label}, {att_name}",
                                  figure=fig,
-                                 style = {'width': '100%', 'height': '100%'},
+                                 style = {'width': '100%', 'height': '40%'},
                                  config = {'responsive': True}
                                  )
                        )
 
     return figures
-#
-# def config_hyperparameter_tuning(infoc_para_res: dict):
-#
-#     alpha = infoc_para_res['alpha']
-#     alpha_max = alpha * 5
-#     alpha_min = 0
-#
-#     beta = infoc_para_res['beta']
-#     beta_max = 2
-#     beta_min = 1
-#
-#     mina = infoc_para_res['min_att']
-#     mina_max = mina * 5
-#     mina_min = 0
-#     maxa = infoc_para_res['max_att']
-#     maxa_max = maxa * 5
-#     maxa_min = 0
-#
-#     runid = int(infoc_para_res['runtime_id'])
-#     runid_max = len(RUNTIME_MARKERS)
-#     runid_min = 0
-#
-#
-#     return dbc.Row(
-#         [
-#             dbc.Col(
-#                 [
-#                     # Alpha
-#                     dbc.Row(
-#                         [
-#                             dbc.Col(html.H6(u"\u03B1"), width=2),
-#                             dbc.Col(
-#                                 dcc.Slider(
-#                                     id='alpha-slider',
-#                                     min=alpha_min,
-#                                     max=alpha_max,
-#                                     step=10,
-#                                     marks={i: str(i) for i in range(alpha_min, alpha_max, int((alpha_max-alpha_min)/10))},
-#                                     value=alpha,
-#                                     tooltip={"always_visible": False}
-#                                 )
-#                             )
-#                         ]
-#                     ),
-#                     # Beta
-#                     dbc.Row(
-#                         [
-#                             dbc.Col(html.H6(u"\u03B2"), width=2),
-#                             dbc.Col(
-#                                 dcc.Slider(
-#                                     id='beta-slider',
-#                                     min=beta_min,
-#                                     max=beta_max,
-#                                     step=0.05,
-#                                     marks={round(i, 1): format(i, '.1f') for i in
-#                                            np.arange(beta_min, beta_max, 0.1)},
-#                                     value=beta,
-#                                     tooltip={"always_visible": False}
-#                                 )
-#                             )
-#                         ]
-#                     ),
-#                     # Runtime
-#                     dbc.Row(
-#                         [
-#                             dbc.Col(html.H6("runtime"), width=2),
-#                             dbc.Col(
-#                                 dcc.Slider(
-#                                     id='runtime-slider',
-#                                     min=runid_min,
-#                                     max=runid_max,
-#                                     step=1,
-#                                     marks={i: RUNTIME_MARKERS[i] for i in range(runid_max)},
-#                                     value=runid,
-#                                     tooltip={"always_visible": False}
-#                                 )
-#                             )
-#                         ]
-#                     ),
-#                     # Min Attributes
-#                     dbc.Row(
-#                         [
-#                             dbc.Col(html.H6("minAtt"), width=2),
-#                             dbc.Col(
-#                                 dcc.Slider(
-#                                     id='minAtt-slider',
-#                                     min=mina_min,
-#                                     max=mina_max,
-#                                     step=1,
-#                                     marks={i: str(i) for i in range(mina_max, 1)},
-#                                     value=mina,
-#                                     tooltip={"always_visible": False}
-#                                 )
-#                             )
-#                         ]
-#                     ),
-#                 ],
-#                 align="center",
-#             ),
-#             dbc.Col(
-#                 [
-#                     dbc.Row(dbc.Col(
-#                         # Recalc restarts from scratch
-#                         dbc.Button("Recalc", color="primary", size="md", id="recalc-hyperparameters")),
-#                         justify="center"
-#                     ),
-#                     dbc.Tooltip(
-#                         "Restart calculation from scratch",
-#                         target="recalc-hyperparameters",
-#                         placement="right"
-#                     )
-#                 ],
-#                 align="center", width="auto"
-#             )
-#         ],
-#         justify="center"
-#     )
+
+def config_selected_explanations(infoc_para_res: dict = None, df_data: pd.DataFrame=None, selected_idxes=None, ics_cluster=None, attributes=None):
+
+    if selected_idxes is None:
+        return 'exploring dataset by selecting points by lasso in the above scatter plot '
+
+    cluster = df_data.iloc[selected_idxes]
+    percentage = len(selected_idxes) / df_data.shape[0] * 100
+
+    figures = []
+    figures.append(html.Br())
+    figures.append(dbc.Alert("Contains " + format(percentage, '.2f') + ' % of data', color="info"))
+
+    att_names = df_data.columns
+    for att_id in attributes:
+        data_att = df_data.values[:, att_id]
+        cluster_att = cluster.values[:, att_id]
+        att_name = att_names[att_id]
+        if infoc_para_res['global_arr_type'] == 'categorical':
+            # fig = get_barchart(infoclus, att_id, cluster_label, att_name)
+            pass
+        elif infoc_para_res['global_arr_type'] == 'numeric':
+            fig = get_kde(data_att, cluster_att, att_name)
+        else:
+            print('unsupported attribute type for visualization:', infoc_para_res['global_arr_type'])
+        figures.append(html.H6(
+            [att_name, dbc.Badge(format(ics_cluster[att_id], '.1f') + " IC", color="success", className="ml-1")]))
+        figures.append(dcc.Graph(
+                                 figure=fig,
+                                 # style={'width': '100%', 'height': '100%'},
+                                 config={'responsive': True}
+                                 )
+                       )
+
+        return figures
 
 def get_dataset_dropdown_items():
     items =[
@@ -247,17 +188,6 @@ def get_runtime_dropdown_items():
         {'label': 'recalculate in 5 s', 'value': '5'}
     ]
     return items
-
-def get_slider(min_v, max_v):
-    dcc.Slider(
-        id='runtime-slider',
-        min=min_v,
-        max=max_v,
-        step=(max_v-min_v)/10,
-        # marks={i: RUNTIME_MARKERS[i] for i in range(runid_max)},
-        value=(max_v+min_v)/2,
-        tooltip={"always_visible": False}
-    )
 
 def get_auxiliary_text_for_clustering():
     return "The clustering result is computed under parameters ..."
@@ -340,11 +270,15 @@ def config_layout(infoc_para_res: dict, df_data: pd.DataFrame, embeddings: dict,
                                                     dbc.Col('alpha', width='auto'),
                                                     dbc.Col(children=dcc.Slider(
                                                                         id='alpha-slider',
-                                                                        min=infoc_para_res['alpha']/5,
-                                                                        max=infoc_para_res['alpha']*5,
-                                                                        step=(infoc_para_res['alpha']*5-infoc_para_res['alpha']/5)/10,
+                                                                        min=int(infoc_para_res['alpha']/5),
+                                                                        max=int(infoc_para_res['alpha']*5),
+                                                                        marks={
+                                                                            int(infoc_para_res['alpha'] / 5): {'label': str(int(infoc_para_res['alpha'] / 5))},
+                                                                            int(infoc_para_res['alpha'] * 5): {'label': str(int(infoc_para_res['alpha'] * 5))},
+                                                                        },
+                                                                        step=1,
                                                                         value=infoc_para_res['alpha'],
-                                                                        tooltip={"always_visible": False}
+                                                                        tooltip={"always_visible": True, 'placement': 'bottom'},
                                                                     ),
                                                             ),
                                                 ]
@@ -354,11 +288,15 @@ def config_layout(infoc_para_res: dict, df_data: pd.DataFrame, embeddings: dict,
                                                     dbc.Col('beta', width='auto'),
                                                     dbc.Col(children=dcc.Slider(
                                                                         id='beta-slider',
-                                                                        min=infoc_para_res['beta']/5,
-                                                                        max=infoc_para_res['beta']*5,
-                                                                        step=(infoc_para_res['beta']*5-infoc_para_res['beta']/5)/10,
+                                                                        min=1,
+                                                                        max=2,
+                                                                        step=0.1,
+                                                                        marks={
+                                                                            1: {'label': str(1)},
+                                                                            2: {'label': str(2)},
+                                                                        },
                                                                         value=infoc_para_res['beta'],
-                                                                        tooltip={"always_visible": False}
+                                                                        tooltip={"always_visible": True, 'placement': 'bottom'}
                                                                     ),
                                                             ),
                                                 ]
@@ -419,11 +357,16 @@ def config_layout(infoc_para_res: dict, df_data: pd.DataFrame, embeddings: dict,
                                     id="embedding-scatterPlot",
                                     figure=config_scatter_graph(infoc_para_res, embeddings[main_emb_name]),
                                     style={'width': '100%', 'height': '100%'},
-                                    config={'responsive': True}
+                                    config={"editable": False, "modeBarButtonsToAdd": ["lasso2d", "select2d"]},
+                                    # config={'responsive': True}
                                 ),
                                 dcc.Markdown(
                                     r"$R_{\alpha,\beta}(\mathcal{C}, \mathcal{E}) = \frac{\sum_{i=1}^r{\sum_{j=1}^{|e_i|}{I_i^j}}}{\alpha + (\sum_{i=1}^r{\sum_{j=1}^{|e_i|}{|a_i^j|}})^\beta}$ is ...",
                                     mathjax=True
+                                ),
+                                dbc.Row(
+                                    id = 'selected-explanation',
+                                    children=config_selected_explanations()
                                 )
                             ],)]),
                         className='h-100')
@@ -447,13 +390,9 @@ def config_layout(infoc_para_res: dict, df_data: pd.DataFrame, embeddings: dict,
                              ),]),
                         dbc.Row(id='explanation',
                                 children=config_explanations(infoc_para_res, df_data, cluster_id),
-                                className="g-3",
                                 style={
-                                    # 'flex': '1',  # 占满剩余空间
-                                    'height': '550px',
-                                    'overflowY': 'auto',  # 垂直滚动
-                                    'border': '1px solid #ccc',
-                                    'padding': '10px'
+                                    'height': '78vh',
+                                    'overflowY': 'auto'
                                 }
                                 )]
 

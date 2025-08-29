@@ -53,7 +53,7 @@ class _Data:
             self.global_var_type = 'mixed'
         else:
             self.global_var_type = self.var_type.iloc[0]
-        self._dls = df_var_type_complexity['var_complexity']
+        self._dls = list(df_var_type_complexity['var_complexity'])
 
 class _Embeddings:
     """
@@ -356,7 +356,7 @@ class InfoClus:
         self.epsilon = EPSILON
         self.allow_cache = allow_cache
 
-        self.data_obj = _Data(dataset_name, data_folder)
+        self.data_obj = _Data(dataset_name)
         self.embeddings_obj = _Embeddings(self.data_obj, embedding, emb_name)
         self.model_obj = _Model()
         self.model_obj.update_paras(modify_hierarchical, linkage, self.embeddings_obj, self.data_obj, base_clusters)
@@ -386,6 +386,7 @@ class InfoClus:
     def get_paras(self):
         paras_val = {
             'data_name': self.data_obj.name,
+            'dls': self.data_obj._dls,
             'global_arr_type': self.data_obj.global_var_type,
             'emb_name': self.embeddings_obj.emb_name,
             'linkage': self.model_obj.linkage,
@@ -580,7 +581,7 @@ class InfoClus:
             attributes = [sortedic[ind][1] for ind in index]
             attributes_total.append(attributes)
             ic_attributes += sum(ics[i, attributes])
-            dl = dl + sum((self.data_obj._dls.iloc[attribute]) for attribute in attributes)
+            dl = dl + sum((self.data_obj._dls[attribute]) for attribute in attributes)
             sortedic = np.delete(sortedic, index, axis=0)
             find_index = np.delete(find_index, index, axis=0)
         best_comb_val = ic_attributes / (self.alpha + dl ** self.beta)
@@ -604,7 +605,7 @@ class InfoClus:
             sortedic = np.delete(sortedic, 0, axis=0)
             if len(attributes_total[extend_cluster_try]) >= self.max_att:
                 continue
-            dl_try = dl + self.data_obj._dls.iloc[extend_attr_try]
+            dl_try = dl + self.data_obj._dls[extend_attr_try]
             ic_attributes_try = ic_attributes + ics[extend_cluster_try, extend_attr_try]
             si_try = ic_attributes_try / (self.alpha + dl_try ** self.beta)
             if si_try >= best_comb_val:

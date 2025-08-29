@@ -5,6 +5,7 @@ from dash.dependencies import Input, Output, State
 
 from layout import *
 from dash_utils import build_infoclus, serialize_obj, deserialize_obj
+from infoclus_utils import get_opt_attributes, ic_one_info
 from config import PROJECT_ROOT
 
 def register_callbacks(app):
@@ -86,3 +87,28 @@ def register_callbacks(app):
     def select_embedding(emb_name, infoc_dict, embedding_store):
         embeddings_dict = deserialize_obj(embedding_store)
         return config_scatter_graph(infoc_dict,embeddings_dict[emb_name])
+
+    @app.callback(
+        Output('selected-explanation', 'children'),
+        Input('embedding-scatterPlot', 'selectedData'),
+        [
+            State('infoclus_store', 'data'),
+            State('dataset_store', 'data'),
+        ]
+    )
+    def select_embedding(selected, infoc_dict, data_store):
+        if selected is None:
+            return "No points selected"
+
+        df_data = deserialize_obj(data_store)
+        print(selected['points'][0])
+        selected_idxes = [p["customdata"][0] for p in selected["points"]]
+        selected_data = df_data.iloc[selected_idxes]
+        mean_selected = np.mean(selected_data.values, axis=0)
+        var_selected = np.var(selected_data.values, axis=0)
+        count_selected = selected_data.shape[0]
+        prior = infoc_dict['prior']
+        ic_selected = ic_one_info(mean_selected, var_selected, count_selected, prior)
+        attributes_total, ic_attributes, dl, best_comb_val = get_opt_attributes(alpha=infoc_dict['alpha'], beta=infoc_dict['beta'], ics=[ic_selected], min_att=infoc_dict['min_att'], max_att=infoc_dict['max_att'])
+
+        return config_selected_explanations(infoc_para_res=infoc_dict, df_data=df_data, selected_idxes=selected_idxes,ics_cluster=ic_selected, attributes=attributes_total[0])
