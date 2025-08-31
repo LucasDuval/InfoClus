@@ -2,7 +2,7 @@ import os, pickle, base64
 
 from infoclus import InfoClus
 from caching import from_cache
-from config import PROJECT_ROOT
+from config import PROJECT_ROOT, DATA_FOLDER
 
 
 def build_infoclus(dataset_name: str='german_socio_eco', emb_name='tsne', linkage='single', modify=True):
@@ -33,4 +33,28 @@ def deserialize_obj(data: str):
     except Exception as e:
         print(f"Deserialization failed: {e}")
         return None
+
+def get_datasets():
+    folders = [f for f in os.listdir(DATA_FOLDER) if os.path.isdir(os.path.join(DATA_FOLDER, f))]
+    return folders
+
+
+def save_dataset_in_folder(contents, filename, base_path=DATA_FOLDER):
+
+    content_type, content_string = contents.split(',')
+    decoded = base64.b64decode(content_string)
+
+    folder_name = os.path.splitext(filename)[0]
+
+    folder_path = os.path.join(base_path, folder_name)
+    os.makedirs(folder_path, exist_ok=True)
+    os.makedirs(os.path.join(folder_path, 'cache'), exist_ok=True)
+
+
+    file_path = os.path.join(folder_path, filename)
+    with open(file_path, 'wb') as f:
+        f.write(decoded)
+
+    return file_path
+
 

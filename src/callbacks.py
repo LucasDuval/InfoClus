@@ -1,3 +1,4 @@
+import json
 import os
 
 import dash
@@ -45,7 +46,7 @@ def register_callbacks(app):
 
         elif trigger_id == 'recalc-hyperparameters':
             infoclus_obj = build_infoclus(dataset_name=dataset, emb_name=embedding_name)
-            info_cache_update = infoclus_obj.optimise(alpha=alpha, beta=beta, min_att=min_att,max_att=max_att, run_id=recalc_hyperparams)
+            info_cache_update = infoclus_obj.optimise(alpha=alpha, beta=beta, min_att=min_att,max_att=max_att, run_id=int(recalc_hyperparams))
             data_update = dash.no_update
             embeddings_update = dash.no_update
         else:
@@ -97,18 +98,29 @@ def register_callbacks(app):
         ]
     )
     def select_embedding(selected, infoc_dict, data_store):
+
         if selected is None:
             return "No points selected"
 
-        df_data = deserialize_obj(data_store)
-        print(selected['points'][0])
         selected_idxes = [p["customdata"][0] for p in selected["points"]]
-        selected_data = df_data.iloc[selected_idxes]
-        mean_selected = np.mean(selected_data.values, axis=0)
-        var_selected = np.var(selected_data.values, axis=0)
-        count_selected = selected_data.shape[0]
+        scaled_data = np.array(infoc_dict['scaled_data'])
+        selected_data = scaled_data[selected_idxes]
+        mean_selected = np.mean(selected_data, axis=0)
+        var_selected = np.var(selected_data, axis=0)
+        count_selected = len(selected_idxes)
         prior = infoc_dict['prior']
-        ic_selected = ic_one_info(mean_selected, var_selected, count_selected, prior)
-        attributes_total, ic_attributes, dl, best_comb_val = get_opt_attributes(alpha=infoc_dict['alpha'], beta=infoc_dict['beta'], ics=[ic_selected], min_att=infoc_dict['min_att'], max_att=infoc_dict['max_att'])
+        dls = infoc_dict['dls']
+        ic_selected = ic_one_info(mean_selected, var_selected, count_selected, np.array(prior))
+        attributes_total, ic_attributes, dl, best_comb_val = get_opt_attributes(alpha=infoc_dict['alpha'], beta=infoc_dict['beta'],dls=dls, ics=[ic_selected], min_att=infoc_dict['min_att'], max_att=infoc_dict['max_att'])
+        return config_selected_explanations(infoc_para_res=infoc_dict, df_data=deserialize_obj(data_store), selected_idxes=selected_idxes,ics_cluster=ic_selected, attributes=attributes_total[0])
 
-        return config_selected_explanations(infoc_para_res=infoc_dict, df_data=df_data, selected_idxes=selected_idxes,ics_cluster=ic_selected, attributes=attributes_total[0])
+    @app.callback(
+        Output('dataset-select', 'options'),
+        Input('import-dataset', 'contents'),
+        State('import-dataset', 'filename')
+    )
+    def import_dataset(contents, filename):
+        if contents is None:
+            return dash.no_update
+        save_dataset_in_folder(contents, filename)
+        return [{'label': dataset, 'value': dataset} for dataset in get_datasets()]

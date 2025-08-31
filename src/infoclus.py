@@ -1,17 +1,16 @@
 import os.path
-import time
+import time, cProfile
 from typing import Optional
 from sklearn.cluster import AgglomerativeClustering, KMeans
 from caching import from_cache, to_cache
 from infoclus_utils import *
 
-from config import DATA_FOLDER
+from config import DATA_FOLDER, Random_State
 
 RUNTIME_OPTIONS = [0.01, 0.5, 1, 5, 10, 30, 60, 180, 300, 600, 1800, 3600, np.inf]
 VAR_TYPE_THRESHOLD = 20
 REPLACE_NAN = 0
 EPSILON= 0.00001
-Random_State = 42
 KMEANS_COUNT = 30 # How many kmeans with different k we are going to consider, starting from the k passed in initialization
 SPLITTING_STRATEGY = ['by_node','by_sibling']
 COUNT_BASE_CLUSTERS = 100
@@ -75,7 +74,7 @@ class _Embeddings:
         else:
             print('Creating embeddings...')
             tic = time.time()
-            embeddings = get_embeddings(data.data_raw.values)
+            embeddings = get_embeddings(data.data.values)
             self.all_embeddings = embeddings
             np.savez(embeddings_path, **embeddings)
             toc = time.time()
@@ -237,58 +236,6 @@ class _Model:
     #         self.kmedoids_var.append(np.var(cluster, axis=0))
     #         self.kmedoids_to_points.append(set_of_samples)
 
-#
-# class _Paras:
-#     def __init__(self, data_obj: _Data, embeddings_obj: _Embeddings, model_obj: _Model,
-#                  alpha, emb_name, linkage, beta, min_att, max_att, run_id,
-#                  split_strategy_id,
-#                  modify_hierarchical, base_clusters):
-#
-#         if alpha is None:
-#             self.alpha = int(data_obj.size / 10)
-#         else:
-#             self.alpha = alpha
-#         if modify_hierarchical:
-#             if base_clusters is None:
-#                 model_obj.base_clusters = min(int(data_obj.size / 5), COUNT_BASE_CLUSTERS)
-#             else:
-#                 model_obj.base_clusters = base_clusters
-#
-#             model_obj.kmeans_model = KMeans(n_clusters=model_obj.base_clusters, random_state=Random_State)
-#             model_obj.kmeans_model.fit(embeddings_obj.embedding)
-#             embeddings_obj.embedding = model_obj.kmeans_model.cluster_centers_
-#
-#             # diss = euclidean_distances(embeddings_obj.embedding)
-#             # model_obj.kmedoids_model = kmedoids.fasterpam(diss, self.base_clusters)
-#             # model_obj.compute_kmedoids_statistics(data_obj.data.values)
-#             # data_obj.data = data_obj.data.iloc[model_obj.kmedoids_model.medoids]
-#             # data_obj.size = data_obj.data.shape[0]
-#             # embeddings_obj.embedding = embeddings_obj.embedding[model_obj.kmedoids_model.medoids]
-#         model_obj.model.fit(embeddings_obj.embedding)
-#         model_obj._calc_statistics_numeric(data_obj, modify_hierarchical)
-#         model_obj.record_parents()
-#
-#         self.beta = beta
-#         self.min_att = min_att
-#         self.max_att = max_att
-#         self.runtime_id = run_id
-#         self.runtime = RUNTIME_OPTIONS[self.runtime_id]
-#         self.split_strategy = SPLITTING_STRATEGY[split_strategy_id]
-#         self._emb_name = emb_name
-#         self._linkage = linkage
-#         self._modify_hierarchical = modify_hierarchical
-#
-#     @property
-#     def modify_hierarchical(self):
-#         return self._modify_hierarchical
-#     @property
-#     def linkage(self):
-#         return self._linkage
-#     @property
-#     def emb_name(self):
-#         return self._emb_name
-#
-
 class _Result:
     def __init__(self, mean_prior: np.ndarray, var_prior: np.ndarray, base_clusters: int, data_size: int):
 
@@ -386,7 +333,9 @@ class InfoClus:
     def get_paras(self):
         paras_val = {
             'data_name': self.data_obj.name,
+            'scaled_data': self.data_obj.data.values.tolist(),
             'dls': self.data_obj._dls,
+            'prior': [self.data_obj.prior[0].tolist(), self.data_obj.prior[1].tolist()],
             'global_arr_type': self.data_obj.global_var_type,
             'emb_name': self.embeddings_obj.emb_name,
             'linkage': self.model_obj.linkage,
@@ -495,6 +444,7 @@ class InfoClus:
             ic_matrix = copy.deepcopy(res_obj_local_opt.ic_opt)
             split_nodes = copy.deepcopy(res_obj_local_opt.split_nodes_opt)
             statistics_for_computing_ics = copy.deepcopy(res_obj_local_opt.clusters_related_statistics_opt)
+
             res = self._split_by_node(node_idx, clusters_idxes, ic_matrix, split_nodes, statistics_for_computing_ics)
 
             if res is None:
@@ -532,7 +482,9 @@ class InfoClus:
 
             if node in previous_node_ancestors_indexes:
 
-                points_to_change = [point for point in points_to_change if point not in clusters_idxes[clus_idx]]
+                cluster_set = set(clusters_idxes[clus_idx])
+                points_to_change = [point for point in points_to_change if point not in cluster_set]
+                # points_to_change = [point for point in points_to_change if point not in clusters_idxes[clus_idx]]
                 if len(points_to_change) == 0:
                     return None
                 elif len(points_to_change) < 0 :
@@ -546,9 +498,15 @@ class InfoClus:
 
         node_ancestors_idxes = self.model_obj.get_ancestors(node)
         closest_ancestor, previous_cluster_label = self.model_obj.find_closest_ancestor(node_ancestors_idxes, split_nodes)
+
         if closest_ancestor is not None:
-            previous_cluster_idxes = [point for point in clusters_idxes[previous_cluster_label] if point not in clusters_idxes[-1]]
+            # previous_cluster_idxes = [point for point in clusters_idxes[previous_cluster_label] if point not in clusters_idxes[-1]]
+            last_cluster_set = set(clusters_idxes[-1])
+            previous_cluster_idxes = [point for point in clusters_idxes[previous_cluster_label] if
+                                      point not in last_cluster_set]
+
             clusters_idxes[previous_cluster_label] = previous_cluster_idxes
+
             if len(previous_cluster_idxes) == 0:
                 return None
             elif len(previous_cluster_idxes) < 0:

@@ -9,17 +9,17 @@ import pandas as pd
 from layout import config_layout
 from callbacks import register_callbacks
 from dash_utils import build_infoclus, serialize_obj
-from infoclus import get_hashkey_from_dict
 from config import PROJECT_ROOT
 from src.dash_utils import serialize_obj
 
 data_name = 'german_socio_eco'
 df_data = pd.read_csv(os.path.join(PROJECT_ROOT, 'data', data_name, f'{data_name}.csv'))
-embeddings_load = np.load(os.path.join(PROJECT_ROOT,'data', data_name, 'cache', 'embeddings.npz'))
-embeddings = {k: embeddings_load[k] for k in embeddings_load.files}
 
 infoclus_obj = build_infoclus('german_socio_eco')
 infoc_para_res_dict = infoclus_obj.optimise()
+
+embeddings_load = np.load(os.path.join(PROJECT_ROOT,'data', data_name, 'cache', 'embeddings.npz'))
+embeddings = {k: embeddings_load[k] for k in embeddings_load.files}
 
 app = dash.Dash(__name__, external_stylesheets=[dbc.themes.BOOTSTRAP])
 

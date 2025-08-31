@@ -7,13 +7,14 @@ from sklearn.neighbors import KernelDensity
 from dash import dcc, html
 import dash_bootstrap_components as dbc
 
+from dash_utils import *
+
 
 RUNTIME_MARKERS = ["0.01s", "0.5s", "1s", "5s", "10s", "30s", "1m","3m", "5m", "10m", "30m", "1h"]
 
 SIDEBAR_STYLE = {
     "overflow-y": "scroll",
     "height": "800px"
-    # "width": "fit-content"
 }
 
 top_bar_style={'display': 'inline-block', 'padding': '5px 10px',
@@ -25,7 +26,7 @@ KERNAL = KERNALS[0]
 
 INFOCLUS_OBJ = None
 
-def get_kde(data_att: np.ndarray, cluster_att: np.ndarray, att_name: str):
+def get_kde(data_att: np.ndarray, cluster_att: np.ndarray, att_name: str, ic):
     """
     :return: return kernal desity estimation of one attribute for a cluster
     """
@@ -51,13 +52,13 @@ def get_kde(data_att: np.ndarray, cluster_att: np.ndarray, att_name: str):
 
     fig.update_layout(
         xaxis=dict(
-            title="Value",
+            title=att_name + "-IC-"+str(round(ic,1)),
             showline=True,
             linecolor="gray",
             linewidth=1
         ),
         yaxis=dict(
-            title="Densities",
+            # title="Densities",
             showline=True,
             linecolor="gray",
             linewidth=1
@@ -66,12 +67,6 @@ def get_kde(data_att: np.ndarray, cluster_att: np.ndarray, att_name: str):
         plot_bgcolor='rgba(0,0,0,0)',
         margin=dict(l=0, r=0, t=0, b=0)
     )
-
-    # fig.update_layout(
-    #                   showlegend=True,
-    #                   width=600,  # Set the figure width in pixels
-    #                   height=400
-    #                   )
 
     return fig
 
@@ -83,8 +78,9 @@ def config_scatter_graph(infoc_para_res: dict, embedding: np.ndarray):
         'x': embedding[:, 0],  # X coordinates
         'y': embedding[:, 1],  # Y coordinates
         'class': pd.Categorical(clustering),  # Classifications
-        'customdata': list(range(len(clustering)))
+        'customdata': list(range(len(embedding))),
     })
+
     fig = px.scatter(df, x='x', y='y', color='class', custom_data=['customdata'])
     fig.update_layout(
         plot_bgcolor='rgba(0,0,0,0)',
@@ -92,7 +88,6 @@ def config_scatter_graph(infoc_para_res: dict, embedding: np.ndarray):
         yaxis=dict(visible=False),
         margin=dict(l=0, r=0, t=0, b=0)
     )
-    fig.update_traces(customdata=df["customdata"])
 
     return fig
 
@@ -119,11 +114,11 @@ def config_explanations(infoc_para_res: dict, df_data: pd.DataFrame, cluster_lab
             # fig = get_barchart(infoclus, att_id, cluster_label, att_name)
             pass
         elif infoc_para_res['global_arr_type'] == 'numeric':
-            fig = get_kde(data_att, cluster_att, att_name)
+            fig = get_kde(data_att, cluster_att, att_name, ics_cluster[att_id])
         else:
             print('unsupported attribute type for visualization:', infoc_para_res['global_arr_type'])
 
-        figures.append(html.H6([att_name, dbc.Badge(format(ics_cluster[att_id], '.1f') + " IC", color="success", className="ml-1")]))
+        # figures.append(html.H6([att_name, dbc.Badge(format(ics_cluster[att_id], '.1f') + " IC", color="success", className="ml-1")]))
         figures.append(dcc.Graph(id=f"Cluster {cluster_label}, {att_name}",
                                  figure=fig,
                                  style = {'width': '100%', 'height': '40%'},
@@ -154,26 +149,19 @@ def config_selected_explanations(infoc_para_res: dict = None, df_data: pd.DataFr
             # fig = get_barchart(infoclus, att_id, cluster_label, att_name)
             pass
         elif infoc_para_res['global_arr_type'] == 'numeric':
-            fig = get_kde(data_att, cluster_att, att_name)
+            fig = get_kde(data_att, cluster_att, att_name, ics_cluster[att_id])
         else:
             print('unsupported attribute type for visualization:', infoc_para_res['global_arr_type'])
-        figures.append(html.H6(
-            [att_name, dbc.Badge(format(ics_cluster[att_id], '.1f') + " IC", color="success", className="ml-1")]))
+        # figures.append(html.H6(
+        #     [att_name, dbc.Badge(format(ics_cluster[att_id], '.1f') + " IC", color="success", className="ml-1")]))
         figures.append(dcc.Graph(
                                  figure=fig,
-                                 # style={'width': '100%', 'height': '100%'},
+                                 style={'height': '100%', 'aspect-ratio': '1.3'},
                                  config={'responsive': True}
                                  )
                        )
 
-        return figures
-
-def get_dataset_dropdown_items():
-    items =[
-        {'label': 'cytometry_2500', 'value': 'cytometry_2500'},
-        {'label': 'german_socio_eco', 'value': 'german_socio_eco'}
-    ]
-    return items
+    return figures
 
 def get_embedding_dropdown_items():
     items =[
@@ -185,7 +173,7 @@ def get_embedding_dropdown_items():
 def get_runtime_dropdown_items():
     items =[
         {'label': 'recalculate in 1 s', 'value': '1'},
-        {'label': 'recalculate in 5 s', 'value': '5'}
+        {'label': 'recalculate in 30 s', 'value': '5'}
     ]
     return items
 
@@ -223,43 +211,62 @@ def config_layout(infoc_para_res: dict, df_data: pd.DataFrame, embeddings: dict,
                                         'a new clustering method that also explains its clusters. '
                                         'Play with existed datasets or import your own dataset!',
                                         id='welcome-block'),
+                                html.Br(),
 
-                                dbc.Row(
-                                    children=[
-                                        html.Span(
-                                            children=[
-                                                'Select dataset: ',
-                                                dcc.Dropdown(
-                                                    options=get_dataset_dropdown_items(),
-                                                    value=dataset_name,
-                                                    id='dataset-select',
-                                                    style={'width': '15em',
-                                                           'display': 'inline-block',
-                                                           'verticalAlign': 'middle'
-                                                           }
-                                                )
-                                            ],
+                                dbc.Card(
+                                    dbc.CardBody(children=[
+                                        dcc.Upload(
+                                            id='import-dataset',
+                                            children=html.Button('Upload Dataset'),
                                         ),
-                                    ]
+                                        dcc.Upload(
+                                            id='import-embedding',
+                                            children=html.Button('Upload Embedding')
+                                        ),
+                                    ])
                                 ),
+                                html.Br(),
 
-                                dbc.Row(
-                                    children=[
-                                        html.Span(
+                                dbc.Card(
+                                    dbc.CardBody(children=[
+                                        dbc.Row(
                                             children=[
-                                                'Select embedding: ',
-                                                dcc.Dropdown(
-                                                    options=get_embedding_dropdown_items(),
-                                                    value=main_emb_name,
-                                                    id='embedding-select',
-                                                    style={'width': '13em',
-                                                           'display': 'inline-block',
-                                                           'verticalAlign': 'middle'},
-                                                )
+                                                html.Span(
+                                                    children=[
+                                                        'Select dataset: ',
+                                                        dcc.Dropdown(
+                                                            options=[{'label': dataset, 'value': dataset} for dataset in get_datasets()],
+                                                            value=dataset_name,
+                                                            id='dataset-select',
+                                                            style={'width': '15em',
+                                                                   'display': 'inline-block',
+                                                                   'verticalAlign': 'middle'
+                                                                   }
+                                                        )
+                                                    ],
+                                                ),
                                             ]
                                         ),
-                                    ]
+                                        dbc.Row(
+                                            children=[
+                                                html.Span(
+                                                    children=[
+                                                        'Select embedding: ',
+                                                        dcc.Dropdown(
+                                                            options=get_embedding_dropdown_items(),
+                                                            value=main_emb_name,
+                                                            id='embedding-select',
+                                                            style={'width': '13em',
+                                                                   'display': 'inline-block',
+                                                                   'verticalAlign': 'middle'},
+                                                        )
+                                                    ]
+                                                ),
+                                            ]
+                                        ),
+                                    ])
                                 ),
+                                html.Br(),
 
                                 dbc.Card(
                                     dbc.CardBody(
@@ -320,7 +327,10 @@ def config_layout(infoc_para_res: dict, df_data: pd.DataFrame, embeddings: dict,
                                     ),
                                     color='white'
                                 )])]),
-                        className='h-100')
+                        style={
+                            'height': '90vh',
+                            'overflowY': 'auto',
+                        })
                 ),
                 dbc.Col(
                     xs=12,
@@ -356,20 +366,29 @@ def config_layout(infoc_para_res: dict, df_data: pd.DataFrame, embeddings: dict,
                                 dcc.Graph(
                                     id="embedding-scatterPlot",
                                     figure=config_scatter_graph(infoc_para_res, embeddings[main_emb_name]),
-                                    style={'width': '100%', 'height': '100%'},
-                                    config={"editable": False, "modeBarButtonsToAdd": ["lasso2d", "select2d"]},
-                                    # config={'responsive': True}
+                                    style={ 'height': '50vh'},
+                                    # config={"editable": False, "modeBarButtonsToAdd": ["lasso2d", "select2d"]},
                                 ),
-                                dcc.Markdown(
-                                    r"$R_{\alpha,\beta}(\mathcal{C}, \mathcal{E}) = \frac{\sum_{i=1}^r{\sum_{j=1}^{|e_i|}{I_i^j}}}{\alpha + (\sum_{i=1}^r{\sum_{j=1}^{|e_i|}{|a_i^j|}})^\beta}$ is ...",
-                                    mathjax=True
-                                ),
+                                # dcc.Markdown(
+                                #     r"$R_{\alpha,\beta}(\mathcal{C}, \mathcal{E}) = \frac{\sum_{i=1}^r{\sum_{j=1}^{|e_i|}{I_i^j}}}{\alpha + (\sum_{i=1}^r{\sum_{j=1}^{|e_i|}{|a_i^j|}})^\beta}$ is ...",
+                                #     mathjax=True
+                                # ),
                                 dbc.Row(
-                                    id = 'selected-explanation',
-                                    children=config_selected_explanations()
+                                    # dbc.Alert("Contains " + format(len(selected_idxes) / df_data.shape[0] * 100, '.2f') + ' % of data', color="info")
+                                    dbc.Col(
+                                        id = 'selected-explanation',
+                                        children=config_selected_explanations(),
+                                        style={
+                                            'display': 'flex',
+                                            'height': '30vh',
+                                            'autoflowX': 'auto',
+                                        })
                                 )
                             ],)]),
-                        className='h-100')
+                        style={
+                            'height': '90vh',
+                            'overflowY': 'auto'
+                        })
                 ),
                 dbc.Col(
                     xs=12,
@@ -391,7 +410,7 @@ def config_layout(infoc_para_res: dict, df_data: pd.DataFrame, embeddings: dict,
                         dbc.Row(id='explanation',
                                 children=config_explanations(infoc_para_res, df_data, cluster_id),
                                 style={
-                                    'height': '78vh',
+                                    'height': '70vh',
                                     'overflowY': 'auto'
                                 }
                                 )]
@@ -400,7 +419,10 @@ def config_layout(infoc_para_res: dict, df_data: pd.DataFrame, embeddings: dict,
                         )
 
                     ]),
-                        className='h-100'
+                        style={
+                            'height': '90vh',
+                            'overflowY': 'auto'
+                        }
                     )
                 )
             ]

@@ -10,6 +10,7 @@ from sklearn.decomposition import PCA
 from sklearn.manifold import TSNE
 from sklearn.neighbors import KernelDensity
 import matplotlib.pyplot as plt
+from config import Random_State
 
 def kl_gaussian(m1, s1, m2, s2, epsilon=0.00001):
     # kl(custer||prior)
@@ -112,10 +113,9 @@ def get_scaled_data(data: pd.DataFrame, replace_nan: float):
     return factorized_data, ls_mapping_chain_by_col, scaled_data, data
 
 def get_embeddings(data_array: np.ndarray) -> Dict[str, np.ndarray]:
-    from config import EMBEDDING_METHODS
 
     embeddings_dict = {}
-    tsne = TSNE(n_components=2, perplexity=30, random_state=1)
+    tsne = TSNE(n_components=2, perplexity=30, random_state=Random_State)
     embeddings_dict['tsne'] = tsne.fit_transform(data_array)
     pca = PCA(n_components=2)
     embeddings_dict['pca'] = pca.fit_transform(data_array)
@@ -288,7 +288,7 @@ def get_opt_attributes(alpha, beta, dls, ics, min_att=2, max_att=5):
         attributes = [sortedic[ind][1] for ind in index]
         attributes_total.append(attributes)
         ic_attributes += sum(ics[i, attributes])
-        dl = dl + sum((dls.iloc[attribute]) for attribute in attributes)
+        dl = dl + sum((dls[attribute]) for attribute in attributes)
         sortedic = np.delete(sortedic, index, axis=0)
         find_index = np.delete(find_index, index, axis=0)
     best_comb_val = ic_attributes / (alpha + dl ** beta)
@@ -300,7 +300,7 @@ def get_opt_attributes(alpha, beta, dls, ics, min_att=2, max_att=5):
         sortedic = np.delete(sortedic, 0, axis=0)
         if len(attributes_total[extend_cluster_try]) >= max_att:
             continue
-        dl_try = dl + dls.iloc[extend_attr_try]
+        dl_try = dl + dls[extend_attr_try]
         ic_attributes_try = ic_attributes + ics[extend_cluster_try, extend_attr_try]
         si_try = ic_attributes_try / (alpha + dl_try ** beta)
         if si_try >= best_comb_val:
