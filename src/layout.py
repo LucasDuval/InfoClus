@@ -21,7 +21,7 @@ top_bar_style={'display': 'inline-block', 'padding': '5px 10px',
                                                    'background-color': '#e0e0e0', 'border-radius': '5px',
                                                    'font-size': '14px', 'margin-right': '10px'}
 
-KERNALS = ["gaussian", "tophat", "epanechnikov"]
+KERNALS = ["scott","silverman"]
 KERNAL = KERNALS[0]
 
 INFOCLUS_OBJ = None
@@ -32,7 +32,7 @@ def get_kde(data_att: np.ndarray, cluster_att: np.ndarray, att_name: str, ic):
     """
     percentage = len(cluster_att) / len(data_att)
     # Note: two kde's need to have the same bandwidth to ensure that they are comparable
-    kde_data = KernelDensity(kernel='gaussian', bandwidth='scott').fit(data_att.reshape(-1,1))
+    kde_data = KernelDensity(kernel='gaussian', bandwidth=KERNAL).fit(data_att.reshape(-1,1))
     kde_cluster = KernelDensity(kernel='gaussian', bandwidth=kde_data.bandwidth_).fit(cluster_att.reshape(-1,1))
 
     x_vals = np.linspace(min(min(data_att), min(cluster_att)), max(max(data_att), max(cluster_att)), 1000)
@@ -70,9 +70,9 @@ def get_kde(data_att: np.ndarray, cluster_att: np.ndarray, att_name: str, ic):
 
     return fig
 
-def config_scatter_graph(infoc_para_res: dict, embedding: np.ndarray):
+def config_scatter_graph(clustering: list, embedding: np.ndarray):
 
-    clustering = infoc_para_res['clustering']
+    # clustering = infoc_para_res['clustering']
 
     df = pd.DataFrame({
         'x': embedding[:, 0],  # X coordinates
@@ -177,18 +177,18 @@ def get_runtime_dropdown_items():
     ]
     return items
 
+def get_clustering_dropdown_items(labels: dict):
+    items=[]
+    for key in labels.keys():
+        items.append({'label': key, 'value': key})
+    return items
+
 def get_auxiliary_text_for_clustering():
     return "The clustering result is computed under parameters ..."
 
-def config_layout(infoc_para_res: dict, df_data: pd.DataFrame, embeddings: dict, cluster_id: int = 0, datasets_config: str = 'datasets_info.yaml'):
+def config_layout(infoc_para_res: dict, df_data: pd.DataFrame, embeddings: dict, labels: dict, cluster_id: int = 0):
 
     dataset_name = infoc_para_res['data_name']
-    with open(datasets_config, 'r') as file:
-        datasets_info = yaml.safe_load(file)
-
-    if dataset_name not in datasets_info['datasets']:
-        print("Error! Dataset not found.")
-
 
     count_clusters = infoc_para_res['count_clusters']
     main_emb_name = infoc_para_res['emb_name']
@@ -344,8 +344,19 @@ def config_layout(infoc_para_res: dict, df_data: pd.DataFrame, embeddings: dict,
                                 dbc.Row(
                                 children=[
                                     html.Span(children=[
-                                        html.Span('clustering', id='clustering-text', style={'font-style': 'italic'}),
+
+                                        dcc.Dropdown(
+                                            options=get_clustering_dropdown_items(labels),
+                                            value = 'infoclus_clustering',
+                                            id = 'clustering-to-show-select',
+                                            style={'width': '8em',
+                                                   'display': 'inline-block',
+                                                   'verticalAlign': 'middle'
+                                                   }
+                                        ),
+
                                         ' shown on embedding ',
+
                                          dcc.Dropdown(
                                              options=get_embedding_dropdown_items(),
                                              value=main_emb_name,
@@ -354,7 +365,13 @@ def config_layout(infoc_para_res: dict, df_data: pd.DataFrame, embeddings: dict,
                                                     'display': 'inline-block',
                                                     'verticalAlign': 'middle'
                                                     }
-                                         )
+                                         ),
+
+                                        dcc.Upload(
+                                            id='import-labels',
+                                            children=html.Button('Upload labels'),
+                                        )
+
                                     ], ),
                                 ],
                                 ),
@@ -365,7 +382,7 @@ def config_layout(infoc_para_res: dict, df_data: pd.DataFrame, embeddings: dict,
                                 ),
                                 dcc.Graph(
                                     id="embedding-scatterPlot",
-                                    figure=config_scatter_graph(infoc_para_res, embeddings[main_emb_name]),
+                                    figure=config_scatter_graph(labels['infoclus_clustering'], embeddings[main_emb_name]),
                                     style={ 'height': '50vh'},
                                     # config={"editable": False, "modeBarButtonsToAdd": ["lasso2d", "select2d"]},
                                 ),

@@ -17,6 +17,7 @@ df_data = pd.read_csv(os.path.join(PROJECT_ROOT, 'data', data_name, f'{data_name
 
 infoclus_obj = build_infoclus('german_socio_eco')
 infoc_para_res_dict = infoclus_obj.optimise()
+labels = {'infoclus_clustering': infoc_para_res_dict['clustering']}
 
 embeddings_load = np.load(os.path.join(PROJECT_ROOT,'data', data_name, 'cache', 'embeddings.npz'))
 embeddings = {k: embeddings_load[k] for k in embeddings_load.files}
@@ -37,6 +38,7 @@ app.layout = dash.html.Div(
         dash.dcc.Store(id='infoclus_store', storage_type='memory', data=infoc_para_res_dict),
         dash.dcc.Store(id='dataset_store', storage_type='memory', data=serialize_obj(df_data)),
         dash.dcc.Store(id='embedding_store', storage_type='memory', data=serialize_obj(embeddings)),
+        dash.dcc.Store(id='clustering_store', storage_type='memory', data=labels),
         dbc.Container(children=
             [
                 dash.html.Header(
@@ -47,7 +49,8 @@ app.layout = dash.html.Div(
                 dbc.Container(
                     fluid=True,
                     id='dashboard-content',
-                    children=config_layout(infoc_para_res_dict, df_data, embeddings),
+                    children=config_layout(infoc_para_res_dict, df_data, embeddings, labels),
+                    className="my-navbar",
                     style={'height': '85vh'}
             )],
             fluid=True,

@@ -1,5 +1,5 @@
-import os, pickle, base64
-
+import os, pickle, base64, io
+import pandas as pd
 from infoclus import InfoClus
 from caching import from_cache
 from config import PROJECT_ROOT, DATA_FOLDER
@@ -56,5 +56,13 @@ def save_dataset_in_folder(contents, filename, base_path=DATA_FOLDER):
         f.write(decoded)
 
     return file_path
+
+
+def get_labels_from_input(contents):
+    content_type, content_string = contents.split(",")
+    decoded = base64.b64decode(content_string)
+
+    df = pd.read_csv(io.StringIO(decoded.decode("utf-8")))
+    return df[df.columns[0]].values.tolist()
 
 

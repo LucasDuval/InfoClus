@@ -15,15 +15,21 @@ def register_callbacks(app):
         Output('infoclus_store', 'data'),
         Output('dataset_store', 'data'),
         Output('embedding_store', 'data'),
+        Output('clustering_store', 'data'),
+        Output('clustering-to-show-select', 'options'),
         [Input('dataset-select', 'value'),
-         Input('recalc-hyperparameters', 'value')],
-        [State("embedding-select", "value"),
+         Input('recalc-hyperparameters', 'value'),
+         Input('import-labels', 'contents'),
+         Input('import-labels', 'filename')
+         ],
+        [State('clustering_store', 'data'),
+        State("embedding-select", "value"),
         State("alpha-slider", "value"),
         State("beta-slider", "value"),
         State("min-att-input", "value"),
         State("max-att-input", "value")]
     )
-    def update_store(dataset, recalc_hyperparams, embedding_name, alpha, beta, min_att, max_att):
+    def update_store(dataset, recalc_hyperparams, contents, filename, labels, embedding_name, alpha, beta, min_att, max_att):
 
         ctx = dash.callback_context
         if not ctx.triggered:
@@ -43,29 +49,46 @@ def register_callbacks(app):
             embeddings_load = np.load(os.path.join(PROJECT_ROOT, 'data', dataset, 'cache', 'embeddings.npz'))
             embeddings = {k: embeddings_load[k] for k in embeddings_load.files}
             embeddings_update = serialize_obj(embeddings)
+            labels = {'infoclus_clustering': info_cache_update['clustering']}
+            options = dash.no_update
 
         elif trigger_id == 'recalc-hyperparameters':
             infoclus_obj = build_infoclus(dataset_name=dataset, emb_name=embedding_name)
             info_cache_update = infoclus_obj.optimise(alpha=alpha, beta=beta, min_att=min_att,max_att=max_att, run_id=int(recalc_hyperparams))
             data_update = dash.no_update
             embeddings_update = dash.no_update
+            labels['infoclus_clustering'] = info_cache_update['clustering']
+            options = dash.no_update
+
+        elif trigger_id == 'import-labels':
+            info_cache_update = dash.no_update
+            data_update = dash.no_update
+            embeddings_update = dash.no_update
+            labels.update({filename: get_labels_from_input(contents)})
+            options = []
+            for key in labels.keys():
+                options.append({'label': key, 'value': key})
+
         else:
             print('unknown trigger id')
 
-        return info_cache_update, data_update, embeddings_update
+        return info_cache_update, data_update, embeddings_update, labels, options
 
 
     @app.callback(
         Output('dashboard-content', 'children'),
         Input('infoclus_store', 'data'),
         [State('dataset_store', 'data'),
-        State('embedding_store', 'data')]
+         State('embedding_store', 'data'),
+         State('clustering_store', 'data'),]
     )
-    def update_content(infoc_store, data_store, embedding_store):
+    def update_content(infoc_store, data_store, embedding_store, labels):
         infoc_dict = infoc_store
         df_data = deserialize_obj(data_store)
         embeddings_dict = deserialize_obj(embedding_store)
-        return config_layout(infoc_para_res=infoc_dict, df_data=df_data, embeddings=embeddings_dict)
+        # for key in labels.keys():
+        #     infoc_dict[key] = labels[key]
+        return config_layout(infoc_para_res=infoc_dict, df_data=df_data, embeddings=embeddings_dict, labels=labels)
 
 
     @app.callback(
@@ -81,13 +104,16 @@ def register_callbacks(app):
 
     @app.callback(
         Output('embedding-scatterPlot', 'figure'),
-        Input('embedding-for-show', 'value'),
-        [State('infoclus_store', 'data'),
+        [Input('embedding-for-show', 'value'),
+        Input('clustering-to-show-select', 'value')],
+        [State('clustering_store', 'data'),
          State('embedding_store', 'data')]
     )
-    def select_embedding(emb_name, infoc_dict, embedding_store):
+    def select_embedding(emb_name,label_key, labels, embedding_store):
+
         embeddings_dict = deserialize_obj(embedding_store)
-        return config_scatter_graph(infoc_dict,embeddings_dict[emb_name])
+
+        return config_scatter_graph(labels[label_key],embeddings_dict[emb_name])
 
     @app.callback(
         Output('selected-explanation', 'children'),
@@ -100,6 +126,8 @@ def register_callbacks(app):
     def select_embedding(selected, infoc_dict, data_store):
 
         if selected is None:
+            return "No points selected"
+        if len(selected["points"]) == 0:
             return "No points selected"
 
         selected_idxes = [p["customdata"][0] for p in selected["points"]]
@@ -124,3 +152,21 @@ def register_callbacks(app):
             return dash.no_update
         save_dataset_in_folder(contents, filename)
         return [{'label': dataset, 'value': dataset} for dataset in get_datasets()]
+
+    # @app.callback(
+    #     Output('clustering-to-show-select', 'options'),
+    #     Output('clustering_store', 'data'),
+    #     [Input('import-labels', 'contents'),
+    #     Input('import-labels', 'filename')],
+    #     [State('clustering_store', 'data'),]
+    # )
+    # def import_labels(contents, filename, labels):
+    #     if contents is None:
+    #         return dash.no_update, dash.no_update
+    #
+    #     labels.update({filename: get_labels_from_input(contents)})
+    #     options = get_labels_from_input(labels)
+    #     return options, labels
+
+
+
