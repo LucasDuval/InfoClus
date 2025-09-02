@@ -1,7 +1,7 @@
 import json
 import os
 
-import dash
+import dash, time
 from dash.dependencies import Input, Output, State
 
 from layout import *
@@ -86,8 +86,6 @@ def register_callbacks(app):
         infoc_dict = infoc_store
         df_data = deserialize_obj(data_store)
         embeddings_dict = deserialize_obj(embedding_store)
-        # for key in labels.keys():
-        #     infoc_dict[key] = labels[key]
         return config_layout(infoc_para_res=infoc_dict, df_data=df_data, embeddings=embeddings_dict, labels=labels)
 
 
@@ -140,6 +138,7 @@ def register_callbacks(app):
         dls = infoc_dict['dls']
         ic_selected = ic_one_info(mean_selected, var_selected, count_selected, np.array(prior))
         attributes_total, ic_attributes, dl, best_comb_val = get_opt_attributes(alpha=infoc_dict['alpha'], beta=infoc_dict['beta'],dls=dls, ics=[ic_selected], min_att=infoc_dict['min_att'], max_att=infoc_dict['max_att'])
+
         return config_selected_explanations(infoc_para_res=infoc_dict, df_data=deserialize_obj(data_store), selected_idxes=selected_idxes,ics_cluster=ic_selected, attributes=attributes_total[0])
 
     @app.callback(

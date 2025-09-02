@@ -314,6 +314,17 @@ def get_opt_attributes(alpha, beta, dls, ics, min_att=2, max_att=5):
 
     return attributes_total, ic_attributes, dl, best_comb_val
 
+def create_new_list_by_updating(old_list, new_list_to_change: dict, new_list_to_add: dict):
+    list = []
+    for i in range(len(old_list)):
+        if i in new_list_to_change.keys():
+            list.append(new_list_to_change[i])
+        else:
+            list.append(old_list[i])
+    for j in range(len(new_list_to_add)):
+        list.append(new_list_to_add[j])
+    return list
+
 #
 # def visualize_result(self, show_now_embedding = True, save_embedding = False, show_now_explanation = False, save_explanation = False):
 #

@@ -2,7 +2,7 @@ import plotly.express as px
 import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
-import yaml
+import yaml, time
 from sklearn.neighbors import KernelDensity
 from dash import dcc, html
 import dash_bootstrap_components as dbc
@@ -21,7 +21,7 @@ top_bar_style={'display': 'inline-block', 'padding': '5px 10px',
                                                    'background-color': '#e0e0e0', 'border-radius': '5px',
                                                    'font-size': '14px', 'margin-right': '10px'}
 
-KERNALS = ["scott","silverman"]
+KERNALS = ["scott", "silverman"]
 KERNAL = KERNALS[0]
 
 INFOCLUS_OBJ = None
@@ -30,18 +30,28 @@ def get_kde(data_att: np.ndarray, cluster_att: np.ndarray, att_name: str, ic):
     """
     :return: return kernal desity estimation of one attribute for a cluster
     """
+    tic1 = time.time()
     percentage = len(cluster_att) / len(data_att)
     # Note: two kde's need to have the same bandwidth to ensure that they are comparable
     kde_data = KernelDensity(kernel='gaussian', bandwidth=KERNAL).fit(data_att.reshape(-1,1))
     kde_cluster = KernelDensity(kernel='gaussian', bandwidth=kde_data.bandwidth_).fit(cluster_att.reshape(-1,1))
+    toc1= time.time()
+    print(f'1 - {toc1-tic1} s')
 
+    tic2 = time.time()
     x_vals = np.linspace(min(min(data_att), min(cluster_att)), max(max(data_att), max(cluster_att)), 1000)
     kde_data_vals = np.exp(kde_data.score_samples(x_vals.reshape(-1, 1)))
     kde_cluster_vals = np.exp(kde_cluster.score_samples(x_vals.reshape(-1, 1)))
+    toc2= time.time()
+    print(f'2 - {toc2-tic2} s')
 
+    tic3 = time.time()
     cluster_proportion = len(cluster_att) / len(data_att)
     overlap_density = kde_cluster_vals * cluster_proportion
+    toc3=time.time()
+    print(f'3 - {toc3-tic3} s')
 
+    tic4 = time.time()
     fig = go.Figure()
     fig.add_trace(go.Scatter(x=x_vals, y=kde_data_vals, mode='lines', name=f'kde of {att_name} on full data',
                              line=dict(color='blue', width=2)))
@@ -67,6 +77,8 @@ def get_kde(data_att: np.ndarray, cluster_att: np.ndarray, att_name: str, ic):
         plot_bgcolor='rgba(0,0,0,0)',
         margin=dict(l=0, r=0, t=0, b=0)
     )
+    toc4=time.time()
+    print(f'4 - {toc4-tic4} s')
 
     return fig
 
@@ -141,6 +153,7 @@ def config_selected_explanations(infoc_para_res: dict = None, df_data: pd.DataFr
     figures.append(dbc.Alert("Contains " + format(percentage, '.2f') + ' % of data', color="info"))
 
     att_names = df_data.columns
+
     for att_id in attributes:
         data_att = df_data.values[:, att_id]
         cluster_att = cluster.values[:, att_id]

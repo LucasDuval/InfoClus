@@ -372,6 +372,8 @@ class InfoClus:
             self._run_infoclus_agglomerative()
             cache_dict = self.create_cache_version(cache_name, self.allow_cache)
             self.print_result_in_terminal()
+        else:
+            print('from cache')
         return cache_dict
 
 
@@ -431,50 +433,62 @@ class InfoClus:
     def _choose_optimal_split_by_nodes(self, res_obj_local_opt: _Result, candidates_for_split):
 
         largest_si = -1
-        largest_clusters_idxes = []
+        largest_changed_old_cluster_label = None
+        largest_clusters_idxes_to_change = []
         largest_ics = []
-        largest_statistics = []
-        largest_split_nodes = []
+        largest_statistics_to_change = []
+        largest_split_nodes_to_change = []
         largest_attributes = []
         largest_nodes_idx = None
 
         for node_idx in candidates_for_split.copy():
 
-            clusters_idxes = copy.deepcopy(res_obj_local_opt.clusters_idxes_opt)
-            ic_matrix = copy.deepcopy(res_obj_local_opt.ic_opt)
-            split_nodes = copy.deepcopy(res_obj_local_opt.split_nodes_opt)
-            statistics_for_computing_ics = copy.deepcopy(res_obj_local_opt.clusters_related_statistics_opt)
-
-            res = self._split_by_node(node_idx, clusters_idxes, ic_matrix, split_nodes, statistics_for_computing_ics)
-
+            res = self._split_by_node(node_idx, res_obj_local_opt.clusters_idxes_opt, res_obj_local_opt.ic_opt,
+                                      res_obj_local_opt.split_nodes_opt, res_obj_local_opt.clusters_related_statistics_opt)
             if res is None:
                 candidates_for_split.remove(node_idx)
                 continue
+
+            ic_matrix = create_new_list_by_updating(old_list=res_obj_local_opt.ic_opt, new_list_to_change={res[0]: res[2][0]},
+                                                    new_list_to_add=[res[2][1]])
             attributes, ic_attributes, dl, si = self._calc_optimal_attributes_dl(ic_matrix)
 
             if si > largest_si:
                 largest_si = si
-                largest_clusters_idxes = clusters_idxes
+                largest_changed_old_cluster_label = res[0]
+                largest_clusters_idxes_to_change = res[1]
                 largest_ics = ic_matrix
-                largest_statistics = statistics_for_computing_ics
-                largest_split_nodes = split_nodes
+                largest_split_nodes_to_change = res[3]
+                largest_statistics_to_change = res[4]
                 largest_attributes = attributes
                 largest_nodes_idx = node_idx
 
         if len(candidates_for_split) == 0:
             return
         candidates_for_split.remove(largest_nodes_idx)
+
+        largest_clusters_idxes = create_new_list_by_updating(old_list=res_obj_local_opt.clusters_idxes_opt,
+                                                new_list_to_change={largest_changed_old_cluster_label: largest_clusters_idxes_to_change[0]},
+                                                new_list_to_add=[largest_clusters_idxes_to_change[1]])
+        largest_statistics = create_new_list_by_updating(old_list=res_obj_local_opt.clusters_related_statistics_opt,
+                                                new_list_to_change={largest_changed_old_cluster_label: largest_statistics_to_change[0]},
+                                                new_list_to_add=[largest_statistics_to_change[1]])
+        res_obj_local_opt.split_nodes_opt.append(largest_split_nodes_to_change)
+
         res_obj_local_opt.update(largest_ics, largest_si, largest_clusters_idxes,
-                                 largest_attributes, largest_statistics, largest_split_nodes)
+                                 largest_attributes, largest_statistics, res_obj_local_opt.split_nodes_opt)
 
     def _split_by_node(self, node, clusters_idxes, ic_matrix, split_nodes, statistics):
 
+        clusters_idxes_to_change = [[],[]]
+        ic_matrix_to_change = [[],[]]
+        split_nodes_to_change = []
+        statistics_to_change = [[],[]]
+
         points_to_change = self.model_obj.nodesToPoints[node]
-        statistics.append(
-            [self.model_obj.meansForNodes[node],
+        stat_for_new_clus = [self.model_obj.meansForNodes[node],
              self.model_obj.varsForNodes[node],
-             len(points_to_change)])
-        ic_matrix.append([])
+             len(points_to_change)]
 
         for clus_idx, split_node in enumerate(split_nodes):
 
@@ -489,43 +503,45 @@ class InfoClus:
                     return None
                 elif len(points_to_change) < 0 :
                     print('error')
-                statistics[-1] = recur_meanVar_remove(
-                    statistics[-1][0], statistics[-1][1],statistics[-1][2],
+                stat_for_new_clus = recur_meanVar_remove(
+                    stat_for_new_clus[0], stat_for_new_clus[1],stat_for_new_clus[2],
                     statistics[clus_idx][0], statistics[clus_idx][1], statistics[clus_idx][2]
                 )
-        statistics[-1][2] = len(points_to_change)
-        clusters_idxes.append(points_to_change)
+        stat_for_new_clus[2] = len(points_to_change)
+        statistics_to_change[1] = stat_for_new_clus
+        clusters_idxes_to_change[1] = points_to_change
 
         node_ancestors_idxes = self.model_obj.get_ancestors(node)
         closest_ancestor, previous_cluster_label = self.model_obj.find_closest_ancestor(node_ancestors_idxes, split_nodes)
 
         if closest_ancestor is not None:
-            # previous_cluster_idxes = [point for point in clusters_idxes[previous_cluster_label] if point not in clusters_idxes[-1]]
-            last_cluster_set = set(clusters_idxes[-1])
+            last_cluster_set = set(points_to_change)
             previous_cluster_idxes = [point for point in clusters_idxes[previous_cluster_label] if
                                       point not in last_cluster_set]
 
-            clusters_idxes[previous_cluster_label] = previous_cluster_idxes
+            clusters_idxes_to_change[0] = previous_cluster_idxes
 
             if len(previous_cluster_idxes) == 0:
                 return None
             elif len(previous_cluster_idxes) < 0:
                 print('error')
-            statistics[previous_cluster_label] = recur_meanVar_remove(
+            statistics_to_change[0] = recur_meanVar_remove(
                 statistics[previous_cluster_label][0],
                 statistics[previous_cluster_label][1],
                 statistics[previous_cluster_label][2],
-                statistics[-1][0],
-                statistics[-1][1],
-                statistics[-1][2]
+                stat_for_new_clus[0],
+                stat_for_new_clus[1],
+                stat_for_new_clus[2]
             )
 
-        for clus_idx in [previous_cluster_label, -1]:
-            ic_matrix[clus_idx] = ic_one_info(statistics[clus_idx][0], statistics[clus_idx][1],
-                                                                  statistics[clus_idx][2], self.data_obj.prior)
-        split_nodes.append([node, node_ancestors_idxes])
+        ic_matrix_to_change[0] = ic_one_info(statistics_to_change[0][0], statistics_to_change[0][1],
+                                             statistics_to_change[0][2], self.data_obj.prior)
+        ic_matrix_to_change[1] = ic_one_info(statistics_to_change[1][0], statistics_to_change[1][1],
+                                             statistics_to_change[1][2], self.data_obj.prior)
+        split_nodes_to_change = [node, node_ancestors_idxes]
 
-        return [clusters_idxes, ic_matrix, split_nodes, statistics]
+        return [previous_cluster_label, clusters_idxes_to_change, ic_matrix_to_change,
+                split_nodes_to_change, statistics_to_change]
 
     def _init_optimal_attributes_dl(self, ics):
 
