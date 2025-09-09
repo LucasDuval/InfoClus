@@ -118,16 +118,11 @@ class _Model:
 
         self.modify_hierarchy = None
         self.base_clusters = None
-        # self.kmedoids_model = None
         self.kmeans_model = None
 
         self.kmeans_mean = []
         self.kmeans_var = []
         self.kmeans_to_points = []
-
-        # self.kmedoids_mean = []
-        # self.kmedoids_var = []
-        # self.kmedoids_to_points = []
 
     def update_paras(self, modify_hierarchy: bool, linkage, emb_obj: _Embeddings, data_obj: _Data, base_clusters=None,):
         self.linkage = linkage
@@ -227,14 +222,6 @@ class _Model:
                     closest_ancestor_cluster_label = ancestor_cluster_label
 
         return closest_ancestor, closest_ancestor_cluster_label
-
-    # def compute_kmedoids_statistics(self, data: np.ndarray):
-    #     for cluster_label in range(len(self.kmedoids_model.medoids)):
-    #         set_of_samples = np.where(self.kmedoids_model.labels==cluster_label)[0]
-    #         cluster = data[set_of_samples]
-    #         self.kmedoids_mean.append(np.mean(cluster, axis=0))
-    #         self.kmedoids_var.append(np.var(cluster, axis=0))
-    #         self.kmedoids_to_points.append(set_of_samples)
 
 class _Result:
     def __init__(self, mean_prior: np.ndarray, var_prior: np.ndarray, base_clusters: int, data_size: int):
@@ -421,6 +408,34 @@ class InfoClus:
             while len(candidates_for_split) > 0 and (time.time() - start < self.runtime):
                 count_iterations += 1
                 self._choose_optimal_split_by_nodes(res_obj_local_opt, candidates_for_split)
+
+                # ##########################################
+                # res_obj_local_opt._extend_results()
+                # embedding = self.embeddings_obj.all_embeddings.get(self.embeddings_obj.emb_name)
+                # df = pd.DataFrame({
+                #     'x': embedding[:, 0],  # X coordinates
+                #     'y': embedding[:, 1],  # Y coordinates
+                #     'class': pd.Categorical(res_obj_local_opt.clustering)  # Classifications
+                # })
+                #
+                # fig, ax = plt.subplots(figsize=(6, 6))
+                # scatter = ax.scatter(
+                #     df['x'],
+                #     df['y'],
+                #     c=df['class'].cat.codes,
+                #     cmap='tab10',  # 颜色映射
+                #     alpha=0.8,
+                #     s=20
+                # )
+                # ax.set_facecolor("none")
+                # ax.axis("off")
+                # handles, labels = scatter.legend_elements(prop="colors")
+                # ax.legend(handles, df['class'].cat.categories, title="Class", loc="best")
+                #
+                # plt.tight_layout()
+                # plt.show()
+                # ###################################
+
                 if res_obj_local_opt.si_opt > self.result_obj.si_opt:
                     self.result_obj.update(copy.deepcopy(res_obj_local_opt.ic_opt),
                                            copy.deepcopy(res_obj_local_opt.si_opt),

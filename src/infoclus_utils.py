@@ -5,7 +5,7 @@ import numpy as np
 import pandas as pd
 
 from typing import Dict
-from sklearn.discriminant_analysis import StandardScaler
+from sklearn.preprocessing import StandardScaler
 from sklearn.decomposition import PCA
 from sklearn.manifold import TSNE
 from sklearn.neighbors import KernelDensity

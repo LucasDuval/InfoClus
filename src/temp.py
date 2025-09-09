@@ -7,7 +7,7 @@ from src.caching import from_cache
 emb_name = 'tsne'
 linkage = 'single'
 modify_hierarchical = True
-data_name = 'Mouse1_Batch1_WT_50k'
+data_name = 'Mouse1_Batch1_WT_50K'
 file_path = os.path.join(PROJECT_ROOT, 'data', data_name, 'cache',
                          emb_name + '_' + linkage + '_' + 'modify_' + str(modify_hierarchical))
 
@@ -20,11 +20,11 @@ else:
                                      modify_hierarchical=modify_hierarchical)
 
 def main():
-    infoclus_obj.optimise()
+    infoclus_obj.optimise(run_id=4)
 
 if __name__ == "__main__":
-    profiler = cProfile.Profile()
-    profiler.enable()
+    # profiler = cProfile.Profile()
+    # profiler.enable()
     main()
-    profiler.disable()
-    profiler.print_stats(sort='time')
+    # profiler.disable()
+    # profiler.print_stats(sort='time')

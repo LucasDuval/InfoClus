@@ -30,28 +30,18 @@ def get_kde(data_att: np.ndarray, cluster_att: np.ndarray, att_name: str, ic):
     """
     :return: return kernal desity estimation of one attribute for a cluster
     """
-    tic1 = time.time()
     percentage = len(cluster_att) / len(data_att)
     # Note: two kde's need to have the same bandwidth to ensure that they are comparable
     kde_data = KernelDensity(kernel='gaussian', bandwidth=KERNAL).fit(data_att.reshape(-1,1))
     kde_cluster = KernelDensity(kernel='gaussian', bandwidth=kde_data.bandwidth_).fit(cluster_att.reshape(-1,1))
-    toc1= time.time()
-    print(f'1 - {toc1-tic1} s')
 
-    tic2 = time.time()
     x_vals = np.linspace(min(min(data_att), min(cluster_att)), max(max(data_att), max(cluster_att)), 1000)
     kde_data_vals = np.exp(kde_data.score_samples(x_vals.reshape(-1, 1)))
     kde_cluster_vals = np.exp(kde_cluster.score_samples(x_vals.reshape(-1, 1)))
-    toc2= time.time()
-    print(f'2 - {toc2-tic2} s')
 
-    tic3 = time.time()
     cluster_proportion = len(cluster_att) / len(data_att)
     overlap_density = kde_cluster_vals * cluster_proportion
-    toc3=time.time()
-    print(f'3 - {toc3-tic3} s')
 
-    tic4 = time.time()
     fig = go.Figure()
     fig.add_trace(go.Scatter(x=x_vals, y=kde_data_vals, mode='lines', name=f'kde of {att_name} on full data',
                              line=dict(color='blue', width=2)))
@@ -77,8 +67,6 @@ def get_kde(data_att: np.ndarray, cluster_att: np.ndarray, att_name: str, ic):
         plot_bgcolor='rgba(0,0,0,0)',
         margin=dict(l=0, r=0, t=0, b=0)
     )
-    toc4=time.time()
-    print(f'4 - {toc4-tic4} s')
 
     return fig
 
@@ -107,9 +95,9 @@ def config_explanations(infoc_para_res: dict, df_data: pd.DataFrame, cluster_lab
     """
     :return: kde distributions for all selected features in a cluster, default as 0
     """
-
+    scaled_data = np.array(infoc_para_res['scaled_data'])
     instance_cluster_idx = infoc_para_res['clusters_idxes_opt'][cluster_label]
-    cluster = df_data.iloc[instance_cluster_idx]
+    cluster = scaled_data[instance_cluster_idx]
     percentage = len(instance_cluster_idx)/df_data.shape[0] * 100
 
     figures = []
@@ -119,8 +107,8 @@ def config_explanations(infoc_para_res: dict, df_data: pd.DataFrame, cluster_lab
     att_names = df_data.columns
     ics_cluster = np.array(infoc_para_res['ic_opt'][cluster_label])
     for att_id in infoc_para_res['attributes_opt'][cluster_label]:
-        data_att = df_data.values[:, att_id]
-        cluster_att = cluster.values[:, att_id]
+        data_att = scaled_data[:, att_id]
+        cluster_att = cluster[:, att_id]
         att_name = att_names[att_id]
         if infoc_para_res['global_arr_type'] == 'categorical':
             # fig = get_barchart(infoclus, att_id, cluster_label, att_name)
@@ -145,7 +133,8 @@ def config_selected_explanations(infoc_para_res: dict = None, df_data: pd.DataFr
     if selected_idxes is None:
         return 'exploring dataset by selecting points by lasso in the above scatter plot '
 
-    cluster = df_data.iloc[selected_idxes]
+    scaled_data = np.array(infoc_para_res['scaled_data'])
+    cluster = scaled_data[selected_idxes]
     percentage = len(selected_idxes) / df_data.shape[0] * 100
 
     figures = []
@@ -155,8 +144,8 @@ def config_selected_explanations(infoc_para_res: dict = None, df_data: pd.DataFr
     att_names = df_data.columns
 
     for att_id in attributes:
-        data_att = df_data.values[:, att_id]
-        cluster_att = cluster.values[:, att_id]
+        data_att = scaled_data[:, att_id]
+        cluster_att = cluster[:, att_id]
         att_name = att_names[att_id]
         if infoc_para_res['global_arr_type'] == 'categorical':
             # fig = get_barchart(infoclus, att_id, cluster_label, att_name)
@@ -186,6 +175,7 @@ def get_embedding_dropdown_items():
 def get_runtime_dropdown_items():
     items =[
         {'label': 'recalculate in 1 s', 'value': '1'},
+        {'label': 'recalculate in 10 s', 'value': '4'},
         {'label': 'recalculate in 30 s', 'value': '5'}
     ]
     return items
