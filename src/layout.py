@@ -4,6 +4,7 @@ import pandas as pd
 import plotly.graph_objects as go
 import yaml, time
 from sklearn.neighbors import KernelDensity
+import fastkde
 from dash import dcc, html
 import dash_bootstrap_components as dbc
 
@@ -25,29 +26,69 @@ KERNALS = ["scott", "silverman"]
 KERNAL = KERNALS[0]
 
 INFOCLUS_OBJ = None
+#
+# def get_kde(data_att: np.ndarray, cluster_att: np.ndarray, att_name: str, ic):
+#     """
+#     :return: return kernal desity estimation of one attribute for a cluster
+#     """
+#     percentage = len(cluster_att) / len(data_att)
+#     # Note: two kde's need to have the same bandwidth to ensure that they are comparable
+#     kde_data = KernelDensity(kernel='gaussian', bandwidth=KERNAL).fit(data_att.reshape(-1,1))
+#     kde_cluster = KernelDensity(kernel='gaussian', bandwidth=kde_data.bandwidth_).fit(cluster_att.reshape(-1,1))
+#
+#     x_vals = np.linspace(min(min(data_att), min(cluster_att)), max(max(data_att), max(cluster_att)), 1000)
+#     kde_data_vals = np.exp(kde_data.score_samples(x_vals.reshape(-1, 1)))
+#     kde_cluster_vals = np.exp(kde_cluster.score_samples(x_vals.reshape(-1, 1)))
+#
+#     cluster_proportion = len(cluster_att) / len(data_att)
+#     overlap_density = kde_cluster_vals * cluster_proportion
+#
+#     fig = go.Figure()
+#     fig.add_trace(go.Scatter(x=x_vals, y=kde_data_vals, mode='lines', name=f'kde of {att_name} on full data',
+#                              line=dict(color='blue', width=2)))
+#     fig.add_trace(go.Scatter(x=x_vals, y=kde_cluster_vals, mode='lines', name=f'kde of {att_name} on cluster',
+#                              line=dict(color='green', width=2, dash='dot')))
+#     fig.add_trace(go.Scatter(x=x_vals, y=overlap_density, fill='tozeroy', name=f'{percentage}% Overlapped by Cluster',
+#                              line=dict(color='orange', width=1)))
+#
+#     fig.update_layout(
+#         xaxis=dict(
+#             title=att_name + "-IC-"+str(round(ic,1)),
+#             showline=True,
+#             linecolor="gray",
+#             linewidth=1
+#         ),
+#         yaxis=dict(
+#             # title="Densities",
+#             showline=True,
+#             linecolor="gray",
+#             linewidth=1
+#         ),
+#         showlegend=False,
+#         plot_bgcolor='rgba(0,0,0,0)',
+#         margin=dict(l=0, r=0, t=0, b=0)
+#     )
+#
+#     return fig
 
-def get_kde(data_att: np.ndarray, cluster_att: np.ndarray, att_name: str, ic):
-    """
-    :return: return kernal desity estimation of one attribute for a cluster
-    """
+def get_fastkde(data_att: np.ndarray, cluster_att: np.ndarray, att_name: str, ic):
+
     percentage = len(cluster_att) / len(data_att)
-    # Note: two kde's need to have the same bandwidth to ensure that they are comparable
-    kde_data = KernelDensity(kernel='gaussian', bandwidth=KERNAL).fit(data_att.reshape(-1,1))
-    kde_cluster = KernelDensity(kernel='gaussian', bandwidth=kde_data.bandwidth_).fit(cluster_att.reshape(-1,1))
 
-    x_vals = np.linspace(min(min(data_att), min(cluster_att)), max(max(data_att), max(cluster_att)), 1000)
-    kde_data_vals = np.exp(kde_data.score_samples(x_vals.reshape(-1, 1)))
-    kde_cluster_vals = np.exp(kde_cluster.score_samples(x_vals.reshape(-1, 1)))
+    pdf_data = fastkde.pdf(data_att, var_names='d')
+    grid_data = pdf_data.coords['d'].values
+    density_data = pdf_data.values
 
-    cluster_proportion = len(cluster_att) / len(data_att)
-    overlap_density = kde_cluster_vals * cluster_proportion
+    pdf_cluster = fastkde.pdf(cluster_att, var_names='c')
+    grid_cluster = pdf_cluster.coords['c'].values
+    density_cluster = pdf_cluster.values
 
     fig = go.Figure()
-    fig.add_trace(go.Scatter(x=x_vals, y=kde_data_vals, mode='lines', name=f'kde of {att_name} on full data',
+    fig.add_trace(go.Scatter(x=grid_data, y=density_data, mode='lines', name=f'Data',
                              line=dict(color='blue', width=2)))
-    fig.add_trace(go.Scatter(x=x_vals, y=kde_cluster_vals, mode='lines', name=f'kde of {att_name} on cluster',
+    fig.add_trace(go.Scatter(x=grid_cluster, y=density_cluster, mode='lines', name=f'cluster',
                              line=dict(color='green', width=2, dash='dot')))
-    fig.add_trace(go.Scatter(x=x_vals, y=overlap_density, fill='tozeroy', name=f'{percentage}% Overlapped by Cluster',
+    fig.add_trace(go.Scatter(x=grid_cluster, y=density_cluster*percentage, fill='tozeroy', name=f'{percentage}% Overlapped by Cluster',
                              line=dict(color='orange', width=1)))
 
     fig.update_layout(
@@ -58,7 +99,7 @@ def get_kde(data_att: np.ndarray, cluster_att: np.ndarray, att_name: str, ic):
             linewidth=1
         ),
         yaxis=dict(
-            # title="Densities",
+            title="KDE PDFs",
             showline=True,
             linecolor="gray",
             linewidth=1
@@ -114,18 +155,17 @@ def config_explanations(infoc_para_res: dict, df_data: pd.DataFrame, cluster_lab
             # fig = get_barchart(infoclus, att_id, cluster_label, att_name)
             pass
         elif infoc_para_res['global_arr_type'] == 'numeric':
-            fig = get_kde(data_att, cluster_att, att_name, ics_cluster[att_id])
+            fig_fastkde = get_fastkde(data_att, cluster_att, att_name, ics_cluster[att_id])
         else:
             print('unsupported attribute type for visualization:', infoc_para_res['global_arr_type'])
 
         # figures.append(html.H6([att_name, dbc.Badge(format(ics_cluster[att_id], '.1f') + " IC", color="success", className="ml-1")]))
         figures.append(dcc.Graph(id=f"Cluster {cluster_label}, {att_name}",
-                                 figure=fig,
+                                 figure=fig_fastkde,
                                  style = {'width': '100%', 'height': '40%'},
                                  config = {'responsive': True}
                                  )
                        )
-
     return figures
 
 def config_selected_explanations(infoc_para_res: dict = None, df_data: pd.DataFrame=None, selected_idxes=None, ics_cluster=None, attributes=None):
@@ -151,13 +191,13 @@ def config_selected_explanations(infoc_para_res: dict = None, df_data: pd.DataFr
             # fig = get_barchart(infoclus, att_id, cluster_label, att_name)
             pass
         elif infoc_para_res['global_arr_type'] == 'numeric':
-            fig = get_kde(data_att, cluster_att, att_name, ics_cluster[att_id])
+            fig_fastkde = get_fastkde(data_att, cluster_att, att_name, ics_cluster[att_id])
         else:
             print('unsupported attribute type for visualization:', infoc_para_res['global_arr_type'])
         # figures.append(html.H6(
         #     [att_name, dbc.Badge(format(ics_cluster[att_id], '.1f') + " IC", color="success", className="ml-1")]))
         figures.append(dcc.Graph(
-                                 figure=fig,
+                                 figure=fig_fastkde,
                                  style={'height': '100%', 'aspect-ratio': '1.3'},
                                  config={'responsive': True}
                                  )
